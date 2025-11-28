@@ -1,6 +1,7 @@
 package aamscool.backend.aamschoolbackend.repository;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -18,5 +19,7 @@ public interface JobsRepository extends JpaRepository<JobPosts, Long>{
 
 	@Query("SELECT new aamscool.backend.aamschoolbackend.model.HomePageLinksModel(j.title,j.jobId,j.createdAt) FROM JobPosts j WHERE j.label =:label")
 	List<HomePageLinksModel> getJobIdandTile(@Param("label") String label);
+
+	Optional<JobPosts> findByLabelAndAdvertisementNo(String label, String advertisementNo);
 
 }
