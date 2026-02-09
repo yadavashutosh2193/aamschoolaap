@@ -1,0 +1,123 @@
+package aamscool.backend.aamschoolbackend.util;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import aamscool.backend.aamschoolbackend.model.JobPosts;
+import aamscool.backend.aamschoolbackend.service.JobsService;
+import aamscool.backend.aamschoolbackend.service.OpenAIService;
+@Component
+public class OpenAIBatchProcessor {
+
+	@Autowired
+    private OpenAIService openAiService;
+	
+	@Autowired
+	JobsService jobsService;
+	private final ObjectMapper mapper = new ObjectMapper();
+	
+    /* ==================================
+       MAIN PROCESS METHOD
+    ================================== */
+
+    public void processAndUpload(List<Map<String, Object>> jobs,String baseLink)
+            throws Exception {
+
+            try {
+            	// 2️⃣ Sort by post date
+            	PostDateSorter.sortByPostDate(jobs);
+
+            	// 3️⃣ Save
+                String aiJson = "";
+            	for (Map<String, Object> job : jobs) {
+                    
+                    	System.out.println(job);
+                    	
+            		aiJson = openAiService.processJobMap(job);
+            		//System.out.println(aiJson);
+            		// 🔥 FIX BROKEN JSON
+                    aiJson = JsonRepairUtil.fixBrokenJson(aiJson);
+                    
+            		aiJson = openAiService.extractCleanJson(aiJson);
+            		//System.out.println(aiJson);
+            		aiJson = SarkariLinkCleaner.cleanLinks(aiJson);
+//            		JsonNode root = mapper.readTree(aiJson);
+//            		aiJson = root.path("jobNotification").asText();
+                      System.out.println(aiJson);
+                      
+            	    String label = LabelUtil.extractLabel(baseLink);
+
+            	    savePostData(aiJson, label);
+
+            	    Thread.sleep(3000);
+            	}
+
+                
+            } catch (Exception e) {
+
+                System.err.println(
+                        "❌ Failed: "
+                );
+
+                e.printStackTrace();
+            }
+
+        System.out.println("✅ All Jobs Uploaded");
+    }
+    public ResponseEntity<Map<String, Object>> savePostData(String rawJson, String lable) {
+
+        try {
+            // Parse incoming JSON
+            JsonNode root = mapper.readTree(rawJson);
+
+            // ✅ Extract core fields safely
+            String title = root.path("title").asText("Untitled Job");
+            String advertisementNo = root.path("advertisement_no").asText("NA");
+            String label = (lable != null && !lable.isEmpty())
+                    ? lable
+                    : root.path("post_name").asText(title);
+
+            // ✅ Create job entity
+            JobPosts job = new JobPosts();
+            job.setLabel(label);
+            job.setTitle(title);
+            job.setAdvertisementNo(advertisementNo);
+            job.setCreatedAt(LocalDate.now());
+            job.setContent(rawJson);
+            job.setApproved(false);
+
+            // ✅ Save via service
+            jobsService.savePost(job);
+
+            return ResponseEntity.ok(Map.of(
+                    "status", "success",
+                    "message", "✅ Job imported successfully",
+                    "jobId", job.getJobId(),
+                    "title", job.getTitle(),
+                    "advertisementNo", job.getAdvertisementNo()
+            ));
+
+        } catch (JsonProcessingException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "status", "error",
+                    "message", "❌ Invalid JSON format: " + e.getOriginalMessage()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "status", "error",
+                    "message", "❌ Failed to save job: " + e.getMessage()
+            ));
+        }
+    }
+}
+

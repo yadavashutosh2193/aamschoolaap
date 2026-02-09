@@ -25,7 +25,7 @@ public class JobsService {
 	}
 	public List<HomePageLinksModel> getLatestJob(String label) {
 		List<HomePageLinksModel> links = jobDao.getJobIdandTile(label);
-		links = links.stream().sorted(Comparator.comparing(HomePageLinksModel::getPostDate).reversed()).toList();
+		//links = links.stream().sorted(Comparator.comparing(HomePageLinksModel::getPostDate).reversed()).toList();
 		return links;
 	}
 	
