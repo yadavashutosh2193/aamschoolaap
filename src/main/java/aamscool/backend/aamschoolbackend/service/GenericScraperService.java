@@ -63,7 +63,9 @@ public class GenericScraperService {
 		}
 		
 		try {
+			if(response != null && response.size() > 0) {
 			openAiBatch.processAndUpload(response,url);
+			}
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
