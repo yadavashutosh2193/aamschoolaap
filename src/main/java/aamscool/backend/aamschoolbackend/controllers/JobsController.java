@@ -2,6 +2,7 @@ package aamscool.backend.aamschoolbackend.controllers;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -23,6 +24,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import aamscool.backend.aamschoolbackend.model.HomePageLinksModel;
 import aamscool.backend.aamschoolbackend.model.JobPosts;
+import aamscool.backend.aamschoolbackend.model.ScrapeCache;
 import aamscool.backend.aamschoolbackend.service.JobsService;
 
 
@@ -40,15 +42,27 @@ public class JobsController {
 	JobsService jobsService;
 	
 	@GetMapping("/latestjobs/{label}")
-    public List<HomePageLinksModel> getLatestJob(@PathVariable("label") String label) {
+	public List<HomePageLinksModel> getLatestJob(@PathVariable("label") String label) {
 		List<HomePageLinksModel> jobs = new ArrayList<HomePageLinksModel>();
-		jobs = jobsService.getLatestJob(label);
-        return jobs;
-    }
+
+		jobs = ScrapeCache.dataCache.get(label,
+				key -> Optional.ofNullable(jobsService.getLatestJob(key)).orElse(Collections.emptyList()));
+
+		return jobs;
+	}
 	@GetMapping("/job/{id}")
 	public Optional<JobPosts> getPost(@PathVariable("id") long id) {
-	return jobsService.getPost(id);
-	}
+		JobPosts cached = ScrapeCache.jsondata.getIfPresent(id);
+	    if (cached != null) {
+	        return Optional.of(cached);
+	    }
+
+	    Optional<JobPosts> postOpt = jobsService.getPost(id);
+
+	    postOpt.ifPresent(post -> ScrapeCache.jsondata.put(id, post));
+
+	    return postOpt;
+}
 	
 	@PostMapping("/savepost")
     public ResponseEntity<Map<String, Object>> savePostData(
@@ -56,6 +70,7 @@ public class JobsController {
             @RequestParam(required = false) String lable) {
 
         try {
+        	ScrapeCache.dataCache.invalidate(lable);
             // Parse incoming JSON
             JsonNode root = mapper.readTree(rawJson);
 

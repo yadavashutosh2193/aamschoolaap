@@ -2,11 +2,14 @@ package aamscool.backend.aamschoolbackend.service;
 
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import aamscool.backend.aamschoolbackend.config.ScraperLock;
+import aamscool.backend.aamschoolbackend.controllers.ScraperScheduler;
 import aamscool.backend.aamschoolbackend.model.ScrapeRequest;
 
 @Service
@@ -20,6 +23,7 @@ public class ScraperService {
 	@Autowired
     private GenericScraperService scraperService;
 
+	private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
 	
 	@Async
 	public void runScraperAsync() {
@@ -29,7 +33,7 @@ public class ScraperService {
 	public void runScraper() {
 
 	    if (!lock.tryLock()) {
-	        //log.warn("Scraper already running");
+	        log.warn("Scraper already running");
 	        return;
 	    }
 

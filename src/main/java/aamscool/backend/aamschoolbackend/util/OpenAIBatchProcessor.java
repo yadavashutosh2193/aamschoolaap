@@ -3,6 +3,8 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -13,7 +15,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import aamscool.backend.aamschoolbackend.controllers.ScraperScheduler;
 import aamscool.backend.aamschoolbackend.model.JobPosts;
+import aamscool.backend.aamschoolbackend.model.ScrapeCache;
 import aamscool.backend.aamschoolbackend.service.JobsService;
 import aamscool.backend.aamschoolbackend.service.OpenAIService;
 @Component
@@ -25,7 +29,7 @@ public class OpenAIBatchProcessor {
 	@Autowired
 	JobsService jobsService;
 	private final ObjectMapper mapper = new ObjectMapper();
-	
+	private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
     /* ==================================
        MAIN PROCESS METHOD
     ================================== */
@@ -77,9 +81,11 @@ public class OpenAIBatchProcessor {
     public ResponseEntity<Map<String, Object>> savePostData(String rawJson, String lable) {
 
         try {
+        	ScrapeCache.dataCache.invalidate(lable);
+        	log.info("saving json into db "+ rawJson + "label =" + lable);
             // Parse incoming JSON
             JsonNode root = mapper.readTree(rawJson);
-
+           
             // ✅ Extract core fields safely
             String title = root.path("title").asText("Untitled Job");
             String advertisementNo = root.path("advertisement_no").asText("NA");

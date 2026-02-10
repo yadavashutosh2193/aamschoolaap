@@ -12,9 +12,12 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import aamscool.backend.aamschoolbackend.controllers.ScraperScheduler;
 import aamscool.backend.aamschoolbackend.model.Notification;
 import aamscool.backend.aamschoolbackend.model.ScrapeCache;
 import aamscool.backend.aamschoolbackend.util.OpenAIBatchProcessor;
@@ -26,6 +29,8 @@ public class GenericScraperService {
 	private ScrapeCache cache;
 	@Autowired
 	OpenAIBatchProcessor openAiBatch;
+	
+	private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
 	
 	public List<Map<String, Object>> scrape(String url, String itemSelector, String titleSelector, String linkSelector,int limit) {
 		List<Map<String, Object>> response = new ArrayList<>();
@@ -49,7 +54,7 @@ public class GenericScraperService {
 					n.setScrapedDate(LocalDate.now());
 					count++;
 					System.out.println(n.getTitle() + " count = " + count);
-
+                     log.info("scrapped link with title " + n.getTitle());
 					if (!cache.isProcessed(n.getLink())) {
 						Map<String, Object> result = scrape(n.getLink());
 						System.out.println(result);
@@ -59,6 +64,7 @@ public class GenericScraperService {
 			}
 
 		} catch (Exception e) {
+			log.info("exception occured " + e.getMessage());
 			e.printStackTrace();
 		}
 		
@@ -68,6 +74,7 @@ public class GenericScraperService {
 			}
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
+			log.info("exception occured in processAndUpload method" + e.getMessage());
 			e.printStackTrace();
 		}
 	}
