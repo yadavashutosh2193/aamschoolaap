@@ -17,23 +17,23 @@ public class LabelUtil {
     	  url = url.toLowerCase();
 
           // Apply rules
-          if (url.contains("/admission/")) {
+          if (url.contains("/admission")) {
               return "admission";
           }
 
-          if (url.contains("/result/")) {
+          if (url.contains("/result")) {
               return "Latest results";
           }
 
-          if (url.contains("/admit-card/")) {
+          if (url.contains("/admit-card")) {
               return "admit cards";
           }
 
-          if (url.contains("/latest-jobs/")) {
+          if (url.contains("/latest-jobs")) {
               return "Latest jobs";
           }
 
-          if (url.contains("/answer-key/")) {
+          if (url.contains("/answer-key")) {
               return "Answer Keys";
           }
 
