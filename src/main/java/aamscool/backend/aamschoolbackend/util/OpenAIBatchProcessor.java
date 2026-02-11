@@ -82,7 +82,7 @@ public class OpenAIBatchProcessor {
 
         try {
         	ScrapeCache.dataCache.invalidate(lable);
-        	log.info("saving json into db "+ rawJson + "label =" + lable);
+        	log.info("saving json into db label = " + lable);
             // Parse incoming JSON
             JsonNode root = mapper.readTree(rawJson);
            
