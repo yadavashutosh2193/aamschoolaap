@@ -1,5 +1,6 @@
 package aamscool.backend.aamschoolbackend.service;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -18,8 +19,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import aamscool.backend.aamschoolbackend.controllers.ScraperScheduler;
+import aamscool.backend.aamschoolbackend.model.Category;
 import aamscool.backend.aamschoolbackend.model.Notification;
+import aamscool.backend.aamschoolbackend.model.Post;
 import aamscool.backend.aamschoolbackend.model.ScrapeCache;
+import aamscool.backend.aamschoolbackend.util.HomepageScraperService;
 import aamscool.backend.aamschoolbackend.util.OpenAIBatchProcessor;
 
 @Service
@@ -54,6 +58,11 @@ public class GenericScraperService {
 					n.setScrapedDate(LocalDate.now());
 					count++;
 					System.out.println(n.getTitle() + " count = " + count);
+					//================================
+					
+					//================================
+					
+					
                      log.info("scrapped link with title " + n.getTitle());
 					if (!cache.isProcessed(n.getLink())) {
 						Map<String, Object> result = scrape(n.getLink());
@@ -80,6 +89,43 @@ public class GenericScraperService {
 	}
 		
 		return response;
+	}
+	
+	
+	public void scrape() {
+		List<Category> scrapedData = new ArrayList<Category>();
+		try {
+			scrapedData = HomepageScraperService.scrapeHomepage();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+        for (Category category : scrapedData) {
+        	List<Map<String, Object>> response = new ArrayList<>();
+        	log.info("\n===== " + category.getName() + " =====");
+            log.info("Category Link: " + category.getCategoryUrl());
+
+            for (Post post : category.getPosts()) {
+                System.out.println(post.getTitle() + " -> " + post.getUrl());
+                if (!cache.isProcessed(post.getUrl())) {
+					Map<String, Object> result = scrape(post.getUrl());
+					//System.out.println(result);
+					response.add(result);
+					cache.markProcessed(post.getUrl());
+				}
+            }
+            try {
+    			if(response != null && response.size() > 0) {
+    			openAiBatch.processAndUpload(response,category.getCategoryUrl());
+    			}
+    		} catch (Exception e) {
+    			// TODO Auto-generated catch block
+    			log.info("exception occured in processAndUpload method" + e.getMessage());
+    			e.printStackTrace();
+    		}
+            
+        }
 	}
 
 	/*

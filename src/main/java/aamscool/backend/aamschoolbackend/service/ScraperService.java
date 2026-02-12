@@ -39,10 +39,10 @@ public class ScraperService {
 
 		try {
 
-			List<ScrapeRequest> scrapeRequest = service.getAll();
-			scrapeRequest.forEach(request -> scraperService.scrape(request.getUrl(), request.getItemSelector(),
-					request.getTitleSelector(), request.getLinkSelector(), request.getFetchLimit()));
-
+//			List<ScrapeRequest> scrapeRequest = service.getAll();
+//			scrapeRequest.forEach(request -> scraperService.scrape(request.getUrl(), request.getItemSelector(),
+//					request.getTitleSelector(), request.getLinkSelector(), request.getFetchLimit()));
+			scraperService.scrape();
 		} finally {
 
 	        lock.unlock();

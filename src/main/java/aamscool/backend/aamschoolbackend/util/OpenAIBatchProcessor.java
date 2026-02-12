@@ -48,15 +48,11 @@ public class OpenAIBatchProcessor {
                     	System.out.println(job);
 						if (null != job) {
 							aiJson = openAiService.processJobMap(job);
-							// System.out.println(aiJson);
-							// 🔥 FIX BROKEN JSON
 							aiJson = JsonRepairUtil.fixBrokenJson(aiJson);
 
 							aiJson = openAiService.extractCleanJson(aiJson);
-							// System.out.println(aiJson);
+						
 							aiJson = SarkariLinkCleaner.cleanLinks(aiJson);
-//            		JsonNode root = mapper.readTree(aiJson);
-//            		aiJson = root.path("jobNotification").asText();
 							System.out.println(aiJson);
 
 							String label = LabelUtil.extractLabel(baseLink);
