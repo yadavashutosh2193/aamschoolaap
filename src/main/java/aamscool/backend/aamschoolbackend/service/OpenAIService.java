@@ -101,13 +101,12 @@ Now:
 1. Extract information from input.
 2. Validate JSON syntax before returning.
 3. please try to add more information that you feel is needed and not available in the input json
-4. please always try to put web links under importantLinks section 
+4. please add all the links in response json from raw json (do not remove any links) 
 5. please always try to add description and vacancy details.
 6. please do not put exampattern under vacancy detail it should contain total vacancy and post wise vacancy and category wise vacancy. 
 7.please create section for exam process and pattern 
 8. please do not use any parent key for the json (means json should start with {)
-9. use key title for title(always modify from input), advertisement_no for advertisement and also add key post_name, eligibility(includes age limit and educational eligibiity) rest all keys word should we spaces seperated
-10. please try to fix the quotes and brackets issue before returning json 
+9. use key title for title(always modify from input), advertisement_no for advertisement and also add key post_name, eligibility(includes age limit and educational eligibiity) rest all keys word should we spaces seperated 
 Return final valid JSON only.
  """ ;
     }
