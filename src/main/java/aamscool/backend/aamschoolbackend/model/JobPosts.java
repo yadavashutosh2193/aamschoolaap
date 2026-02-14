@@ -14,8 +14,8 @@ import jakarta.persistence.Table;
 public class JobPosts {
 
 	@Id
-	@GeneratedValue(strategy = GenerationType.AUTO)
-	private long jobId;
+	@GeneratedValue(strategy = GenerationType.IDENTITY)
+	private Long jobId;
 	private String label;
 	private String advertisementNo;
 	private LocalDate createdAt = LocalDate.now();

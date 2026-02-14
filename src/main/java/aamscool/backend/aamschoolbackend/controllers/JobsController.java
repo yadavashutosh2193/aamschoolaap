@@ -29,10 +29,6 @@ import aamscool.backend.aamschoolbackend.service.JobsService;
 
 
 @RestController
-@CrossOrigin(origins = {
-		"http://localhost:3000",
-        "http://aamschool-frontend.s3-website.ap-south-1.amazonaws.com"
-})
 @RequestMapping("/api/jobs")
 public class JobsController {
 
