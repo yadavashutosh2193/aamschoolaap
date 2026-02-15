@@ -20,7 +20,7 @@ public class SitemapController {
         String baseUrl = "https://aamschool.in";
 
         List<Long> jobIds = jobDao.findAllJobIds();
-
+        if (jobIds == null) jobIds = List.of();
         StringBuilder xml = new StringBuilder();
         xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
         xml.append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">");
