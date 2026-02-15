@@ -22,6 +22,6 @@ public interface JobsRepository extends JpaRepository<JobPosts, Long>{
 
 	Optional<JobPosts> findByLabelAndAdvertisementNo(String label, String advertisementNo);
 
-	@Query(value = "select job_id from job_post order by job_id desc", nativeQuery = true)
-	List<Long> findAllJobIds();
+	@Query("SELECT j.jobId FROM JobPosts j ORDER BY j.jobId DESC")
+    List<Long> findAllJobIds();
 }
