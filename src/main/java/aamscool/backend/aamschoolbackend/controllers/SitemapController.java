@@ -45,5 +45,11 @@ public class SitemapController {
 
         return xml.toString();
     }
+    
+    @GetMapping(value = "/robots.txt", produces = "text/plain")
+    public String robots() {
+        return "User-agent: *\nAllow: /\nSitemap: https://api.aamschool.in/sitemap.xml";
+    }
+
 }
 
