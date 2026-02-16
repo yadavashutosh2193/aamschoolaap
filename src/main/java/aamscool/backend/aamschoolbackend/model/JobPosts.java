@@ -14,7 +14,7 @@ import jakarta.persistence.Table;
 public class JobPosts {
 
 	@Id
-	@GeneratedValue(strategy = GenerationType.AUTO)
+	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long jobId;
 	private String label;
 	private String advertisementNo;
@@ -25,10 +25,11 @@ public class JobPosts {
 	private boolean approved = false;
 	
 	
-	public long getJobId() {
+	
+	public Long getJobId() {
 		return jobId;
 	}
-	public void setJobId(long jobId) {
+	public void setJobId(Long jobId) {
 		this.jobId = jobId;
 	}
 	public String getLabel() {
