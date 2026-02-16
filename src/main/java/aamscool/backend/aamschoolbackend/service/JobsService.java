@@ -5,10 +5,13 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import aamscool.backend.aamschoolbackend.controllers.ScraperScheduler;
 import aamscool.backend.aamschoolbackend.model.HomePageLinksModel;
 import aamscool.backend.aamschoolbackend.model.JobPosts;
 import aamscool.backend.aamschoolbackend.repository.JobsRepository;
@@ -18,6 +21,7 @@ public class JobsService {
 
 	@Autowired
 	JobsRepository jobDao;
+	private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
 	
 	public Optional<JobPosts> getPost(long id) {
 		return jobDao.findById(id);
@@ -45,15 +49,19 @@ public class JobsService {
 
                 // ✅ Update existing record
                 old.setTitle(job.getTitle());
+                old.setJobId(old.getJobId());
                 old.setContent(job.getContent());
                 old.setCreatedAt(LocalDate.now());
                 old.setApproved(false); // Reset approval since content changed
+                log.info("saving existing job with job title = " +old.getTitle()+ "jobId = " + old.getJobId());
                 return jobDao.save(old);
 
             } else {
                 // ✅ Create new record
                 job.setCreatedAt(LocalDate.now());
                 job.setApproved(false);
+                log.info("saving existing job with job title = " +job.getTitle());
+                
                 return jobDao.save(job);
             }
 
