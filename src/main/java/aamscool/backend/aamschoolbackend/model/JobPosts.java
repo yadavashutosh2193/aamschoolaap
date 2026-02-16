@@ -15,7 +15,7 @@ public class JobPosts {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.AUTO)
-	private Long jobId;
+	private long jobId;
 	private String label;
 	private String advertisementNo;
 	private LocalDate createdAt = LocalDate.now();
@@ -26,10 +26,10 @@ public class JobPosts {
 	
 	
 	
-	public Long getJobId() {
+	public long getJobId() {
 		return jobId;
 	}
-	public void setJobId(Long jobId) {
+	public void setJobId(long jobId) {
 		this.jobId = jobId;
 	}
 	public String getLabel() {
