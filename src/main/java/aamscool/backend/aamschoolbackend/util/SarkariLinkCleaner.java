@@ -22,6 +22,7 @@ public class SarkariLinkCleaner {
             // SarkariResult
             "sarkariresult.com",
             "sarkariresult.com.cm",
+            "https://www.sarkariexam.com",
 
             // Social media
             "facebook.com",

@@ -46,19 +46,30 @@ public class JobsController {
 
 		return jobs;
 	}
-	@GetMapping("/job/{id}")
-	public Optional<JobPosts> getPost(@PathVariable("id") long id) {
-		JobPosts cached = ScrapeCache.jsondata.getIfPresent(id);
+	@GetMapping("/job/{slugWithId}")
+	public Optional<JobPosts> getPost(@PathVariable("slugWithId") String slugWithId) {
+
+	    // extract ID from end of slug
+	    long id = extractIdFromSlug(slugWithId);
+
+	    if (id == -1) {
+	        return Optional.empty();
+	    }
+
+	    // check cache first
+	    JobPosts cached = ScrapeCache.jsondata.getIfPresent(id);
 	    if (cached != null) {
 	        return Optional.of(cached);
 	    }
 
 	    Optional<JobPosts> postOpt = jobsService.getPost(id);
 
+	    // put into cache
 	    postOpt.ifPresent(post -> ScrapeCache.jsondata.put(id, post));
 
 	    return postOpt;
-}
+	}
+
 	
 	@PostMapping("/savepost")
     public ResponseEntity<Map<String, Object>> savePostData(
@@ -109,4 +120,15 @@ public class JobsController {
             ));
         }
     }
+	
+	private long extractIdFromSlug(String slug) {
+	    try {
+	        // last '-' ke baad jo number hai wahi id hai
+	        String idStr = slug.substring(slug.lastIndexOf("-") + 1);
+	        return Long.parseLong(idStr);
+	    } catch (Exception e) {
+	        return -1;
+	    }
+	}
+
 }

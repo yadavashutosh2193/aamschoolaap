@@ -6,6 +6,7 @@ public class HomePageLinksModel {
 	private String title;
 	private long id;
 	private LocalDate postDate;
+	private String slugurl;
 	
 	
 	public HomePageLinksModel(String title, long id, LocalDate postDate) {
@@ -13,6 +14,7 @@ public class HomePageLinksModel {
 		this.title = title;
 		this.id = id;
 		this.postDate = postDate;
+		this.slugurl = toSlug(this.title)+"-"+this.id;
 	}
 	public String getTitle() {
 		return title;
@@ -33,5 +35,20 @@ public class HomePageLinksModel {
 		this.postDate = postDate;
 	}
 	
+	public String getSlugurl() {
+		return slugurl;
+	}
+	public void setSlugurl(String slugurl) {
+		this.slugurl = slugurl;
+	}
+	// slug generator
+    private String toSlug(String title) {
+        if (title == null) return "";
+        return title.toLowerCase()
+                .replaceAll("[^a-z0-9\\s-]", "")
+                .replaceAll("\\s+", "-")
+                .replaceAll("-+", "-")
+                .trim();
+    }
 	
 }
