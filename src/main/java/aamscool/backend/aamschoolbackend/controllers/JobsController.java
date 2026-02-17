@@ -46,6 +46,17 @@ public class JobsController {
 
 		return jobs;
 	}
+
+	@GetMapping("/jobbyid/{id}")
+	public Optional<JobPosts> getPost(@PathVariable("id") long id) {
+		JobPosts cached = ScrapeCache.jsondata.getIfPresent(id);
+		if (cached != null) {
+			return Optional.of(cached);
+		}
+		Optional<JobPosts> postOpt = jobsService.getPost(id);
+		postOpt.ifPresent(post -> ScrapeCache.jsondata.put(id, post));
+		return postOpt;
+	}
 	@GetMapping("/job/{slugWithId}")
 	public Optional<JobPosts> getPost(@PathVariable("slugWithId") String slugWithId) {
 
