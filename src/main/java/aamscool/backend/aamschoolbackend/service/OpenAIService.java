@@ -101,7 +101,7 @@ Now:
 1. Extract information from input.
 2. Validate JSON syntax before returning.
 3. please try to add more information that you feel is needed and not available in the input json
-4. please add all the links in response json from raw json (do not remove any links) 
+4. please must add all the links in response json from raw json inside important links key (do not remove any links) 
 5. please always try to add description and vacancy details.
 6. please do not put exampattern under vacancy detail it should contain total vacancy and post wise vacancy and category wise vacancy. 
 7.please create section for exam process and pattern 
