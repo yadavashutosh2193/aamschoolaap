@@ -26,20 +26,13 @@ public class SarkariLinkCleaner {
 
             // Social media
             "facebook.com",
-            "fb.com",
             "instagram.com",
             "twitter.com",
-            "x.com",
             "youtube.com",
             "youtu.be",
-            "t.me",
             "telegram.me",
-            "wa.me",
             "whatsapp.com",
-            "linkedin.com",
-
-            // App stores (optional)
-            "play.google.com"
+            "linkedin.com"
     };
 
 

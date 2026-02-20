@@ -105,7 +105,7 @@ public class GenericScraperService {
         	List<Map<String, Object>> response = new ArrayList<>();
         	log.info("\n===== " + category.getName() + " =====");
             log.info("Category Link: " + category.getCategoryUrl());
-
+   
             for (Post post : category.getPosts()) {
                 System.out.println(post.getTitle() + " -> " + post.getUrl());
                 if (!cache.isProcessed(post.getUrl())) {
@@ -414,7 +414,7 @@ public class GenericScraperService {
 		String t = text.toLowerCase();
 
 		return t.contains("important question") || t.contains("latest") || t.contains("related") || t.contains("faq")
-				|| t.contains("result.com.cm") || t.contains("click here");
+				|| t.contains("result.com.cm");
 	}
 
 	/*

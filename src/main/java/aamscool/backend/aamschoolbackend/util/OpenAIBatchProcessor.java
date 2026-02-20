@@ -48,7 +48,7 @@ public class OpenAIBatchProcessor {
                     	System.out.println(job);
 						if (null != job) {
 							aiJson = openAiService.processJobMap(job);
-							aiJson = JsonRepairUtil.fixBrokenJson(aiJson);
+							//aiJson = JsonRepairUtil.fixBrokenJson(aiJson);
 
 							aiJson = openAiService.extractCleanJson(aiJson);
 						
