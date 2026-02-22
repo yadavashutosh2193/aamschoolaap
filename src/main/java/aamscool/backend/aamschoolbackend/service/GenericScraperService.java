@@ -232,18 +232,48 @@ public class GenericScraperService {
             // Links (apply/admit/result)
             if (tag.equals("a")) {
 
-                String href = el.absUrl("href");
-                if (href.isEmpty()) continue;
+                String href = el.absUrl("href").trim();
+                String linkText = clean(el.text());
 
-                List<Map<String, String>> links =
-                        (List<Map<String, String>>) section
-                                .computeIfAbsent("links", k -> new ArrayList<>());
+                if (href.isEmpty())
+                    continue;
 
-                Map<String, String> linkObj = new LinkedHashMap<>();
-                linkObj.put("text", text.isEmpty() ? "Link" : text);
-                linkObj.put("url", href);
+                if (linkText.isEmpty())
+                    linkText = "Link";
 
-                links.add(linkObj);
+                // 🔥 If "Click Here", use parent heading/text as key
+                if (linkText.equalsIgnoreCase("click here")
+                        || linkText.equalsIgnoreCase("download")
+                        || linkText.equalsIgnoreCase("here")) {
+
+                    Element parent = el.parent();
+
+                    if (parent != null) {
+                        String parentText = clean(parent.ownText());
+
+                        if (!parentText.isEmpty())
+                            linkText = parentText;
+                    }
+                }
+
+                // 🔥 store direct key → url (no nested structure)
+                if(section.containsKey(linkText)){
+
+                    Object existing = section.get(linkText);
+
+                    if(existing instanceof List){
+                        ((List<Object>)existing).add(href);
+                    }else{
+                        List<Object> list = new ArrayList<>();
+                        list.add(existing);
+                        list.add(href);
+                        section.put(linkText,list);
+                    }
+
+                }else{
+                    section.put(linkText,href);
+                }
+
                 continue;
             }
 
