@@ -8,8 +8,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestParam;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -37,43 +35,50 @@ public class OpenAIBatchProcessor {
     public void processAndUpload(List<Map<String, Object>> jobs,String baseLink)
             throws Exception {
 
-            try {
-            	// 2️⃣ Sort by post date
-            	PostDateSorter.sortByPostDate(jobs);
+        try { 
 
-            	// 3️⃣ Save
-                String aiJson = "";
-            	for (Map<String, Object> job : jobs) {
-                    
-                    	System.out.println(job);
-						if (null != job) {
-							aiJson = openAiService.processJobMap(job);
-							//aiJson = JsonRepairUtil.fixBrokenJson(aiJson);
+        	ObjectMapper mapper = new ObjectMapper();
 
-							aiJson = openAiService.extractCleanJson(aiJson);
-						
-							aiJson = SarkariLinkCleaner.cleanLinks(aiJson);
-							System.out.println(aiJson);
+        	// 2️⃣ Sort by post date
+        	PostDateSorter.sortByPostDate(jobs);
 
-							String label = LabelUtil.extractLabel(baseLink);
-
-							ResponseEntity<Map<String, Object>> responseResult = savePostData(aiJson, label);
-						}
-            	    Thread.sleep(3000);
-            	}
-
+        	// 3️⃣ Save
+        	//AwsSavePostClient client = new AwsSavePostClient();
+            
+            String aiJson = "";
+        	for (Map<String, Object> job : jobs) {
                 
-            } catch (Exception e) {
+                	System.out.println(job);
 
-                System.err.println(
-                        "❌ Failed: "
-                );
+            	aiJson = SarkariLinkCleaner.cleanLinks(job);
+            	log.info("=========after link cleaner=========");
+            	log.info(aiJson);
+        		aiJson = openAiService.processJobMap(job);
+        		log.info("=========AI generated json=========");
+                aiJson = JsonRepairUtil.fixBrokenJson(aiJson);
+        		aiJson = openAiService.extractCleanJson(aiJson);
+        		log.info(aiJson);
+                  
+        	    String label = LabelUtil.extractLabel(baseLink);
+        	    log.info("label to save into db "+label);
 
-                e.printStackTrace();
-            }
+        	    savePostData(aiJson, label);
 
-        System.out.println("✅ All Jobs Uploaded");
-    }
+        	    Thread.sleep(3000);
+        	}
+
+            
+        } catch (Exception e) {
+
+            System.err.println(
+                    "❌ Failed: "
+            );
+
+            e.printStackTrace();
+        }
+
+    System.out.println("✅ All Jobs Uploaded");
+}
     public ResponseEntity<Map<String, Object>> savePostData(String rawJson, String lable) {
 
         try {

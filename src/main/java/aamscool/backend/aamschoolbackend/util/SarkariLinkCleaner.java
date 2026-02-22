@@ -1,137 +1,147 @@
 package aamscool.backend.aamschoolbackend.util;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-
-import java.util.Iterator;
-import java.util.Map;
+import java.util.*;
 
 public class SarkariLinkCleaner {
-	private static final ObjectMapper mapper =
-            new ObjectMapper();
 
+    private static final ObjectMapper mapper = new ObjectMapper();
 
     /* ===============================
-       BLOCKED DOMAINS
+       BLOCKED DOMAINS / TEXT
     =============================== */
 
     private static final String[] BLOCKED_DOMAINS = {
 
-            // SarkariResult
+            // Sarkari sites
             "sarkariresult.com",
-            "sarkariresult.com.cm",
-            "https://www.sarkariexam.com",
+            "sarkariresult",
+            "sarkariexam.com",
 
-            // Social media
+            // Social
             "facebook.com",
             "instagram.com",
             "twitter.com",
             "youtube.com",
             "youtu.be",
-            "telegram.me",
+            "telegram",
             "whatsapp.com",
-            "linkedin.com"
-    };
+            "linkedin.com",
 
+            // App store
+            "play.google.com"
+    };
 
     /* ===============================
        MAIN METHOD
     =============================== */
 
-    public static String cleanLinks(String json)
-            throws Exception {
+    public static String cleanLinks(Map<String, Object> job) throws Exception {
 
-        JsonNode root = mapper.readTree(json);
+        if (job == null) return "{}";
 
-        removeLinks(root);
+        removeLinks(job);
 
-        return mapper.writeValueAsString(root);
+        return mapper.writeValueAsString(job);
     }
 
-
     /* ===============================
-       CORE RECURSIVE CLEANER
+       RECURSIVE CLEANER
     =============================== */
 
-    private static void removeLinks(JsonNode node) {
+    @SuppressWarnings("unchecked")
+    private static void removeLinks(Object node) {
 
         if (node == null) return;
 
+        /* ---------- MAP ---------- */
 
-        /* ---------- OBJECT ---------- */
+        if (node instanceof Map) {
 
-        if (node.isObject()) {
+            Map<String, Object> map = (Map<String, Object>) node;
 
-            ObjectNode obj = (ObjectNode) node;
+            Iterator<Map.Entry<String, Object>> iterator = map.entrySet().iterator();
 
-            Iterator<Map.Entry<String, JsonNode>> fields =
-                    obj.fields();
+            while (iterator.hasNext()) {
 
-            while (fields.hasNext()) {
+                Map.Entry<String, Object> entry = iterator.next();
+                Object value = entry.getValue();
 
-                Map.Entry<String, JsonNode> entry =
-                        fields.next();
-
-                JsonNode value = entry.getValue();
-
-                // If this value is blocked URL → REMOVE FIELD
+                // remove field if blocked string
                 if (isBlocked(value)) {
-
-                    fields.remove();
+                    iterator.remove();
                     continue;
                 }
 
-                // Recurse
                 removeLinks(value);
             }
         }
 
+        /* ---------- LIST ---------- */
 
-        /* ---------- ARRAY ---------- */
+        else if (node instanceof List) {
 
-        if (node.isArray()) {
+            List<Object> list = (List<Object>) node;
 
-            ArrayNode array = (ArrayNode) node;
+            for (int i = list.size() - 1; i >= 0; i--) {
 
-            for (int i = array.size() - 1; i >= 0; i--) {
+                Object item = list.get(i);
 
-                JsonNode child = array.get(i);
-
-                // If blocked → remove element
-                if (isBlocked(child)) {
-
-                    array.remove(i);
+                // 🚨 If any object inside list contains blocked text/link → remove whole object
+                if (containsBlockedDeep(item)) {
+                    list.remove(i);
                     continue;
                 }
 
-                removeLinks(child);
+                removeLinks(item);
             }
         }
     }
 
-
     /* ===============================
-       CHECK BLOCKED URL
+       CHECK BLOCKED TEXT
     =============================== */
 
-    private static boolean isBlocked(JsonNode node) {
+    private static boolean isBlocked(Object value) {
+
+        if (!(value instanceof String)) return false;
+
+        String val = ((String) value).toLowerCase();
+
+        for (String domain : BLOCKED_DOMAINS) {
+            if (val.contains(domain)) return true;
+        }
+
+        return false;
+    }
+
+    /* ===============================
+       DEEP CHECK (IMPORTANT)
+       If any field inside object has blocked text
+       remove whole object
+    =============================== */
+
+    @SuppressWarnings("unchecked")
+    private static boolean containsBlockedDeep(Object node) {
 
         if (node == null) return false;
 
-        if (!node.isTextual()) return false;
+        if (node instanceof String) {
+            return isBlocked(node);
+        }
 
-        String val = node.asText().toLowerCase();
+        if (node instanceof Map) {
+            for (Object v : ((Map<String, Object>) node).values()) {
+                if (containsBlockedDeep(v)) return true;
+            }
+        }
 
-        for (String domain : BLOCKED_DOMAINS) {
-
-            if (val.contains(domain)) {
-                return true;
+        if (node instanceof List) {
+            for (Object v : (List<Object>) node) {
+                if (containsBlockedDeep(v)) return true;
             }
         }
 
         return false;
     }
 }
-

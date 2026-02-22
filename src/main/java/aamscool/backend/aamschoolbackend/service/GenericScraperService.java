@@ -29,428 +29,418 @@ import aamscool.backend.aamschoolbackend.util.OpenAIBatchProcessor;
 @Service
 public class GenericScraperService {
 
-	@Autowired
-	private ScrapeCache cache;
-	@Autowired
-	OpenAIBatchProcessor openAiBatch;
-	
-	private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
-	
-	public List<Map<String, Object>> scrape(String url, String itemSelector, String titleSelector, String linkSelector,int limit) {
-		List<Map<String, Object>> response = new ArrayList<>();
-		if(null != url) {
-		try {
+    @Autowired
+    private ScrapeCache cache;
 
-			Document doc = Jsoup.connect(url).timeout(10000).get();
+    @Autowired
+    OpenAIBatchProcessor openAiBatch;
 
-			Elements items = doc.select(itemSelector);
+    private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
+
+    // 🔥 Improved KV Pattern (supports ":" and "-")
+    private static final Pattern KV_PATTERN =
+            Pattern.compile("^(.+?)\\s*[:\\-]\\s*(.+)$");
+
+    private static final List<String> BLOCK_WORDS = List.of(
+            "telegram", "whatsapp", "download app"
+    );
+
+    /* ============================================================
+       ================ EXISTING LIST SCRAPER =====================
+       ============================================================ */
+
+    public List<Map<String, Object>> scrape(String url,
+                                            String itemSelector,
+                                            String titleSelector,
+                                            String linkSelector,
+                                            int limit) {
+
+        List<Map<String, Object>> response = new ArrayList<>();
+
+        if (url == null) return response;
+
+        try {
+
+            Document doc = Jsoup.connect(url).timeout(10000).get();
+            Elements items = doc.select(itemSelector);
+
             int count = 0;
-			for (Element item : items) {
-                if(count >= limit)
-                	break;
-				String title = item.select(titleSelector).text();
-				String link = item.select(linkSelector).attr("href");
 
-					Notification n = new Notification();
+            for (Element item : items) {
 
-					n.setTitle(title);
-					n.setLink(link);
-					n.setScrapedDate(LocalDate.now());
-					count++;
-					System.out.println(n.getTitle() + " count = " + count);
-					//================================
-					
-					//================================
-					
-					
-                     log.info("scrapped link with title " + n.getTitle());
-					if (!cache.isProcessed(n.getLink())) {
-						Map<String, Object> result = scrape(n.getLink());
-						System.out.println(result);
-						response.add(result);
-						cache.markProcessed(n.getLink());
-					}
-			}
+                if (count >= limit) break;
 
-		} catch (Exception e) {
-			log.info("exception occured " + e.getMessage());
-			e.printStackTrace();
-		}
-		
-		try {
-			if(response != null && response.size() > 0) {
-			openAiBatch.processAndUpload(response,url);
-			}
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			log.info("exception occured in processAndUpload method" + e.getMessage());
-			e.printStackTrace();
-		}
-	}
-		
-		return response;
-	}
-	
-	
-	public void scrape() {
-		List<Category> scrapedData = new ArrayList<Category>();
-		try {
-			scrapedData = HomepageScraperService.scrapeHomepage();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
+                String title = item.select(titleSelector).text().trim();
 
-        for (Category category : scrapedData) {
-        	List<Map<String, Object>> response = new ArrayList<>();
-        	log.info("\n===== " + category.getName() + " =====");
-            log.info("Category Link: " + category.getCategoryUrl());
-   
-            for (Post post : category.getPosts()) {
-                System.out.println(post.getTitle() + " -> " + post.getUrl());
-                if (!cache.isProcessed(post.getUrl())) {
-					Map<String, Object> result = scrape(post.getUrl());
-					//System.out.println(result);
-					response.add(result);
-					cache.markProcessed(post.getUrl());
-				}
+                Element linkEl = item.selectFirst(linkSelector);
+                String link = "";
+
+                if (linkEl != null) {
+                    link = linkEl.absUrl("href").trim();
+                }
+
+                Notification n = new Notification();
+                n.setTitle(title);
+                n.setLink(link);
+                n.setScrapedDate(LocalDate.now());
+
+                if (!cache.isProcessed(link)) {
+
+                    Map<String, Object> result = scrape(link);
+                    response.add(result);
+                    cache.markProcessed(link);
+                }
+
+                count++;
             }
-            try {
-    			if(response != null && response.size() > 0) {
-    			openAiBatch.processAndUpload(response,category.getCategoryUrl());
-    			}
-    		} catch (Exception e) {
-    			// TODO Auto-generated catch block
-    			log.info("exception occured in processAndUpload method" + e.getMessage());
-    			e.printStackTrace();
-    		}
-            
+
+        } catch (Exception e) {
+            log.error("Error in list scrape", e);
         }
-	}
 
-	/*
-	 * =============================== CONFIG ===============================
-	 */
+        try {
+            if (!response.isEmpty()) {
+                openAiBatch.processAndUpload(response, url);
+            }
+        } catch (Exception e) {
+            log.error("Error in processAndUpload", e);
+        }
 
-	// Pattern: Key Value
-	private static final Pattern KV_PATTERN = Pattern.compile("(.+?)\\s{2,}(.+)");
+        return response;
+    }
 
-	// Noise words
-	private static final List<String> BLOCK_WORDS = List.of("telegram", "whatsapp", "latest posts", "related posts",
-			"disclaimer", "download app", "follow now");
+    /* ============================================================
+       ================= HOMEPAGE SCRAPER =========================
+       ============================================================ */
 
-	/*
-	 * =============================== MAIN API ===============================
-	 */
+    public void scrape() {
 
-	public Map<String, Object> scrape(String url) {
+        List<Category> scrapedData = new ArrayList<>();
+        System.out.println("acrapper started ++++=");
+        try {
+            scrapedData = HomepageScraperService.scrapeHomepage();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        System.out.println("acrapper started ++++=1111");
+        for (Category category : scrapedData) {
+        	System.out.println("inside loop acrapper started ++++=");
+            List<Map<String, Object>> response = new ArrayList<>();
 
-		Map<String, Object> result = new LinkedHashMap<>();
+            for (Post post : category.getPosts()) {
 
-		try {
+                if (!cache.isProcessed(post.getUrl())) {
 
-			/* ---------- Load Page ---------- */
+                    Map<String, Object> result = scrape(post.getUrl());
+                    System.out.println(result);
+                    response.add(result);
+                    cache.markProcessed(post.getUrl());
+                }
+            }
 
-			Document doc = Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(20000).get();
+            try {
+                if (!response.isEmpty()) {
+                    openAiBatch.processAndUpload(response, category.getCategoryUrl());
+                }
+            } catch (Exception e) {
+                log.error("Error in batch upload", e);
+            }
+        }
+    }
 
-			/* ---------- Main Content ---------- */
+    /* ============================================================
+       =================== SINGLE PAGE SCRAPER ====================
+       ============================================================ */
 
-			Element main = doc.selectFirst("#post, .entry-content, article, .container");
+    public Map<String, Object> scrape(String url) {
 
-			if (main == null)
-				main = doc.body();
+        Map<String, Object> result = new LinkedHashMap<>();
 
-			/* ---------- Meta ---------- */
+        try {
 
-			result.put("pageTitle", doc.title());
-			result.put("url", url);
+            Document doc = Jsoup.connect(url)
+                    .userAgent("Mozilla/5.0")
+                    .timeout(20000)
+                    .get();
 
-			/* ---------- Parse ---------- */
+            Element main = doc.selectFirst("#post, .entry-content, article, .container");
+            if (main == null) main = doc.body();
 
-			Map<String, Object> content = parse(main);
+            result.put("pageTitle", doc.title());
+            result.put("url", url);
+            result.put("scrapedDate", LocalDate.now().toString());
 
-			result.put("content", content);
+            result.put("content", parse(main));
 
-		} catch (Exception e) {
+        } catch (Exception e) {
+            e.printStackTrace();
+            result.put("error", "Scraping failed");
+        }
 
-			e.printStackTrace();
-			result.put("error", "Scraping failed");
-		}
+        return result;
+    }
 
-		return result;
-	}
+    /* ============================================================
+       ======================= CORE PARSER ========================
+       ============================================================ */
 
-	/*
-	 * =============================== CORE PARSER ===============================
-	 */
+    private Map<String, Object> parse(Element root) {
 
-	private Map<String, Object> parse(Element root) {
+        Map<String, Object> json = new LinkedHashMap<>();
 
-		Map<String, Object> json = new LinkedHashMap<>();
+        String sectionName = "General";
+        Map<String, Object> section = new LinkedHashMap<>();
+        json.put(sectionName, section);
 
-		String sectionName = "General";
+        for (Element el : root.select("*")) {
 
-		Map<String, Object> section = new LinkedHashMap<>();
+            String tag = el.tagName();
+            String text = clean(el.text());
 
-		json.put(sectionName, section);
+            if (isNoise(text)) continue;
 
-		for (Element el : root.select("*")) {
+            // Headings
+            if (tag.matches("h[1-6]")) {
 
-			String tag = el.tagName();
+                // ❌ skip bad sections like related/faq
+                if (isBadSection(text)) {
+                    continue;
+                }
 
-			String text = clean(el.text());
+                sectionName = text;
+                section = new LinkedHashMap<>();
+                json.put(sectionName, section);
+                continue;
+            }
 
-			/* ---------- Skip Noise ---------- */
+            // Tables (vacancy / important links)
+            if (tag.equals("table")) {
 
-			if (isNoise(text))
-				continue;
+                List<Map<String, Object>> tableData = parseTable(el);
 
-			/* ---------- Headings ---------- */
+                if (!tableData.isEmpty()) {
 
-			if (tag.matches("h[1-6]")) {
+                    List<Object> tables = (List<Object>) section
+                            .computeIfAbsent("tables", k -> new ArrayList<>());
 
-				if (isBadSection(text))
-					continue;
+                    tables.add(tableData);
+                }
 
-				sectionName = text;
+                continue;
+            }
 
-				section = new LinkedHashMap<>();
+            // Links (apply/admit/result)
+            if (tag.equals("a")) {
 
-				json.put(sectionName, section);
+                String href = el.absUrl("href");
+                if (href.isEmpty()) continue;
 
-				continue;
-			}
+                List<Map<String, String>> links =
+                        (List<Map<String, String>>) section
+                                .computeIfAbsent("links", k -> new ArrayList<>());
 
-			/* ---------- Tables ---------- */
+                Map<String, String> linkObj = new LinkedHashMap<>();
+                linkObj.put("text", text.isEmpty() ? "Link" : text);
+                linkObj.put("url", href);
 
-			if (tag.equals("table")) {
+                links.add(linkObj);
+                continue;
+            }
 
-				List<Map<String, String>> rows = parseTableWithLinks(el);
+            // Text parsing
+            if (tag.equals("p") || tag.equals("li")) {
+                extractKeyValue(text, section);
+            }
+        }
 
-				if (!rows.isEmpty()) {
+        return cleanSections(json);
+    }
+    
+    private boolean isBadSection(String text) {
 
-					section.put("rows", rows);
-				}
+        if (text == null || text.length() < 4)
+            return true;
 
-				continue;
-			}
+        String t = text.toLowerCase();
 
-			/* ---------- Links ---------- */
+        return t.contains("important question")
+                || t.contains("latest job")
+                || t.contains("latest post")
+                || t.contains("related")
+                || t.contains("faq")
+                || t.contains("frequently asked")
+                || t.contains("result.com.cm")
+                || t.contains("click here")
+                || t.contains("you may also like");
+    }
 
-			if (tag.equals("a")) {
+    /* ============================================================
+       =================== ADVANCED TABLE PARSER ==================
+       ============================================================ */
 
-				String href = el.absUrl("href");
+    private List<Map<String, Object>> parseTable(Element table) {
 
-				if (!href.isEmpty() && !text.isEmpty() && !text.equalsIgnoreCase("click here")) {
+        List<Map<String, Object>> tableData = new ArrayList<>();
+        Elements rows = table.select("tr");
+        if (rows.isEmpty()) return tableData;
 
-					section.put(text, href);
-				}
+        List<String> headers = new ArrayList<>();
+        for (Element th : rows.get(0).select("th,td")) {
+            headers.add(clean(th.text()));
+        }
 
-				continue;
-			}
+        for (int i = 1; i < rows.size(); i++) {
 
-			/* ---------- Text ---------- */
+            Elements cols = rows.get(i).select("td,th");
+            if (cols.isEmpty()) continue;
 
-			if (tag.equals("p") || tag.equals("li")) {
+            Map<String, Object> rowMap = new LinkedHashMap<>();
 
-				extractKeyValue(text, section);
-			}
-		}
+            for (int j = 0; j < cols.size(); j++) {
 
-		/* ---------- Cleanup ---------- */
+                String key = (j < headers.size() && !headers.get(j).isEmpty())
+                        ? headers.get(j)
+                        : "col_" + j;
 
-		return cleanSections(json);
-	}
+                Element col = cols.get(j);
+                Element link = col.selectFirst("a[href]");
 
-	/*
-	 * =============================== TEXT PARSER ===============================
-	 */
+                if (link != null) {
 
-	private void extractKeyValue(String text, Map<String, Object> section) {
+                    Map<String, String> linkObj = new LinkedHashMap<>();
+                    linkObj.put("text", clean(link.text()));
+                    linkObj.put("url", link.absUrl("href"));
 
-		if (text.isEmpty())
-			return;
+                    rowMap.put(key, linkObj);
 
-		Matcher m = KV_PATTERN.matcher(text);
+                } else {
+                    rowMap.put(key, clean(col.text()));
+                }
+            }
 
-		// "Key Value"
-		if (m.matches()) {
+            tableData.add(rowMap);
+        }
 
-			String key = clean(m.group(1));
-			String val = clean(m.group(2));
+        return tableData;
+    }
 
-			if (!key.isEmpty() && !val.isEmpty()) {
+    /* ============================================================
+       ================== KEY VALUE EXTRACTION ====================
+       ============================================================ */
 
-				section.put(key, val);
-			}
+    private void extractKeyValue(String text, Map<String, Object> section) {
 
-		} else {
+        if (text == null || text.length() < 2) return;
 
-			addToList(section, text);
-		}
-	}
+        Matcher m = KV_PATTERN.matcher(text);
 
-	private void addToList(Map<String, Object> section, String text) {
+        if (m.matches()) {
 
-		if (text.length() < 4)
-			return;
+            String key = clean(m.group(1));
+            String val = clean(m.group(2));
 
-		List<String> list;
+            if (!key.isEmpty() && !val.isEmpty()) {
 
-		if (section.containsKey("list")) {
+                Object existing = section.get(key);
 
-			list = (List<String>) section.get("list");
+                if (existing == null) {
+                    section.put(key, val);
+                } else if (existing instanceof List) {
+                    ((List<Object>) existing).add(val);
+                } else {
+                    List<Object> list = new ArrayList<>();
+                    list.add(existing);
+                    list.add(val);
+                    section.put(key, list);
+                }
+            }
 
-		} else {
+        } else {
 
-			list = new ArrayList<>();
+            List<String> list =
+                    (List<String>) section.computeIfAbsent("list", k -> new ArrayList<>());
 
-			section.put("list", list);
-		}
+            list.add(text);
+        }
+    }
 
-		list.add(text);
-	}
+    /* ============================================================
+       ========================= HELPERS ==========================
+       ============================================================ */
 
-	/*
-	 * =============================== TABLE PARSER ===============================
-	 */
+    private boolean isNoise(String text) {
 
-	private List<Map<String, String>> parseTableWithLinks(Element table) {
+        if (text == null) return true;
 
-		List<Map<String, String>> list = new ArrayList<>();
+        String t = text.toLowerCase();
 
-		Elements rows = table.select("tr");
+        for (String w : BLOCK_WORDS) {
+            if (t.contains(w)) return true;
+        }
 
-		if (rows.size() < 2)
-			return list;
+        return false;
+    }
 
-		for (int i = 1; i < rows.size(); i++) {
+    private String clean(String text) {
+        return text.replaceAll("\\s+", " ")
+                .replace(":", "")
+                .trim();
+    }
+    
+    private Map<String, Object> cleanSections(Map<String, Object> data) {
 
-			Elements cols = rows.get(i).select("td");
+        Map<String, Object> clean = new LinkedHashMap<>();
 
-			if (cols.size() < 2)
-				continue;
+        for (Map.Entry<String, Object> e : data.entrySet()) {
 
-			String left = clean(cols.get(0).text());
+            if (!(e.getValue() instanceof Map))
+                continue;
 
-			Element link = cols.get(1).selectFirst("a[href]");
+            Map<String, Object> section = (Map<String, Object>) e.getValue();
 
-			String right;
+            if (section.isEmpty())
+                continue;
 
-			if (link != null) {
+            // 🔥 THIS is what old code used
+            if (shouldDropSection(e.getKey(), section))
+                continue;
 
-				right = link.absUrl("href");
+            clean.put(e.getKey(), section);
+        }
 
-			} else {
+        return clean;
+    }
+    
+    private boolean shouldDropSection(String name, Map<String, Object> section) {
 
-				right = clean(cols.get(1).text());
-			}
+        if (name == null) return true;
 
-			if (!left.isEmpty() && !right.isEmpty()) {
+        String t = name.toLowerCase();
 
-				Map<String, String> row = new LinkedHashMap<>();
+        // 🔥 remove unwanted sections exactly like old code
+        if (t.contains("official website")) return true;
+        if (t.contains("total post")) return true;
+        if (t.contains("question")) return true;
+        if (t.contains("faq")) return true;
+        if (t.contains("frequently")) return true;
+        if (t.contains("related")) return true;
+        if (t.contains("latest")) return true;
+        if (t.contains("disclaimer")) return true;
+        if (t.contains("important question")) return true;
+        if (t.contains("you may also like")) return true;
 
-				row.put(left, right);
+        // 🔥 If section only contains list of random jobs → remove
+        if (section.containsKey("list")) {
 
-				list.add(row);
-			}
-		}
+            List<?> list = (List<?>) section.get("list");
 
-		return list;
-	}
+            long jobLinks = list.stream()
+                    .filter(o -> o.toString().contains("202"))
+                    .count();
 
-	/*
-	 * =============================== CLEANUP ===============================
-	 */
+            if (jobLinks > 5) return true;
+        }
 
-	private Map<String, Object> cleanSections(Map<String, Object> data) {
-
-		Map<String, Object> clean = new LinkedHashMap<>();
-
-		for (Map.Entry<String, Object> e : data.entrySet()) {
-
-			if (!(e.getValue() instanceof Map))
-				continue;
-
-			Map<String, Object> section = (Map<String, Object>) e.getValue();
-
-			if (section.isEmpty())
-				continue;
-
-			if (shouldDropSection(e.getKey(), section))
-				continue;
-
-			clean.put(e.getKey(), section);
-		}
-
-		return clean;
-	}
-
-	/*
-	 * =============================== FILTERS ===============================
-	 */
-
-	private boolean isNoise(String text) {
-
-		if (text == null)
-			return true;
-
-		String t = text.toLowerCase();
-
-		for (String w : BLOCK_WORDS) {
-
-			if (t.contains(w))
-				return true;
-		}
-
-		return false;
-	}
-
-	private boolean isBadSection(String text) {
-
-		if (text == null || text.length() < 4)
-			return true;
-
-		String t = text.toLowerCase();
-
-		return t.contains("important question") || t.contains("latest") || t.contains("related") || t.contains("faq")
-				|| t.contains("result.com.cm");
-	}
-
-	/*
-	 * =============================== UTILS ===============================
-	 */
-
-	private String clean(String text) {
-
-		return text.replaceAll("\\s+", " ").replace(":", "").trim();
-	}
-
-	private boolean shouldDropSection(String name, Map<String, Object> section) {
-
-		String t = name.toLowerCase();
-
-		if (t.contains("official website"))
-			return true;
-		if (t.contains("total post"))
-			return true;
-		if (t.contains("question"))
-			return true;
-		if (t.contains("faq"))
-			return true;
-
-// If only list with unrelated jobs
-		if (section.containsKey("list")) {
-
-			List<?> list = (List<?>) section.get("list");
-
-			long jobLinks = list.stream().filter(o -> o.toString().contains("202")).count();
-
-			if (jobLinks > 5)
-				return true;
-		}
-
-		return false;
-	}
-
+        return false;
+    }
 }
