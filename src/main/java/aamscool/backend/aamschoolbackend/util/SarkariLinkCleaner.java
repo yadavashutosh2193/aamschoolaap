@@ -27,6 +27,7 @@ public class SarkariLinkCleaner {
             "telegram",
             "whatsapp.com",
             "linkedin.com",
+            "t.me",
 
             // App store
             "play.google.com"
