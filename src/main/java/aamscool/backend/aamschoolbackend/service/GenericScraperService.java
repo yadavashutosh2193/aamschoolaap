@@ -39,7 +39,7 @@ public class GenericScraperService {
 
     // 🔥 Improved KV Pattern (supports ":" and "-")
     private static final Pattern KV_PATTERN =
-            Pattern.compile("^(.+?)\\s*[:\\-]\\s*(.+)$");
+            Pattern.compile("^(.+?)\\s*(?:[:\\-]|\\s{2,})\\s*(.+)$");
 
     private static final List<String> BLOCK_WORDS = List.of(
             "telegram", "whatsapp", "download app"
@@ -216,6 +216,7 @@ public class GenericScraperService {
             // Tables (vacancy / important links)
             if (tag.equals("table")) {
 
+                // parse table normally
                 List<Map<String, Object>> tableData = parseTable(el);
 
                 if (!tableData.isEmpty()) {
@@ -224,6 +225,21 @@ public class GenericScraperService {
                             .computeIfAbsent("tables", k -> new ArrayList<>());
 
                     tables.add(tableData);
+                }
+
+                // 🔥 NEW: extract important dates from table
+                for (Element row : el.select("tr")) {
+
+                    String rowText = clean(row.text());
+
+                    if (looksLikeDate(rowText)) {
+
+                        Map<String,Object> imp =
+                                (Map<String,Object>) json.computeIfAbsent("Important Dates",
+                                        k -> new LinkedHashMap<>());
+
+                        extractKeyValue(rowText, imp);
+                    }
                 }
 
                 continue;
@@ -257,33 +273,75 @@ public class GenericScraperService {
                 }
 
                 // 🔥 store direct key → url (no nested structure)
-                if(section.containsKey(linkText)){
+                if (section.containsKey(linkText)) {
 
                     Object existing = section.get(linkText);
 
-                    if(existing instanceof List){
-                        ((List<Object>)existing).add(href);
-                    }else{
+                    if (existing instanceof List) {
+
+                        List<Object> list = (List<Object>) existing;
+
+                        if (!list.isEmpty() && list.get(0) instanceof Map) {
+
+                            Map<String, String> linkMap = (Map<String, String>) list.get(0);
+                            int nextIndex = linkMap.size() + 1;
+                            linkMap.put("link " + nextIndex, href);
+
+                        }
+
+                    } else if (existing instanceof String) {
+
+                        // Convert single string to required structure
+                        Map<String, String> linkMap = new LinkedHashMap<>();
+                        linkMap.put("link 1", (String) existing);
+                        linkMap.put("link 2", href);
+
                         List<Object> list = new ArrayList<>();
-                        list.add(existing);
-                        list.add(href);
-                        section.put(linkText,list);
+                        list.add(linkMap);
+
+                        section.put(linkText, list);
                     }
 
-                }else{
-                    section.put(linkText,href);
+                } else {
+
+                    // First time link found
+                    Map<String, String> linkMap = new LinkedHashMap<>();
+                    linkMap.put("link 1", href);
+
+                    List<Object> list = new ArrayList<>();
+                    list.add(linkMap);
+
+                    section.put(linkText, list);
                 }
 
                 continue;
             }
 
             // Text parsing
-            if (tag.equals("p") || tag.equals("li")) {
-                extractKeyValue(text, section);
+         // 🔥 auto-detect important dates anywhere
+            if(looksLikeDate(text)){
+
+                Map<String,Object> imp =
+                    (Map<String,Object>) json.computeIfAbsent("Important Dates", k-> new LinkedHashMap<>());
+
+                extractKeyValue(text, imp);
             }
         }
 
         return cleanSections(json);
+    }
+    
+    private boolean looksLikeDate(String text){
+
+        String t = text.toLowerCase();
+
+        return t.matches(".*\\b\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}\\b.*")  // 12/03/2026
+                || t.matches(".*\\b\\d{1,2}\\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec).*")
+                || t.contains("date")
+                || t.contains("exam")
+                || t.contains("last")
+                || t.contains("apply")
+                || t.contains("admit");
     }
     
     private boolean isBadSection(String text) {
@@ -449,7 +507,6 @@ public class GenericScraperService {
 
         // 🔥 remove unwanted sections exactly like old code
         if (t.contains("official website")) return true;
-        if (t.contains("total post")) return true;
         if (t.contains("question")) return true;
         if (t.contains("faq")) return true;
         if (t.contains("frequently")) return true;

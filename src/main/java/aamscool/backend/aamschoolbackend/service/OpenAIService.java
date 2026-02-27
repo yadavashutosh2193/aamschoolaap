@@ -1,6 +1,7 @@
 package aamscool.backend.aamschoolbackend.service;
 
 import java.io.IOException;
+import java.time.LocalDate;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -36,7 +37,7 @@ public class OpenAIService {
 
         this.client = new OkHttpClient.Builder()
                 .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(60, TimeUnit.SECONDS)
+                .readTimeout(180, TimeUnit.SECONDS)
                 .writeTimeout(60, TimeUnit.SECONDS)
                 .build();
 
@@ -49,13 +50,13 @@ public class OpenAIService {
      */
     public String processJobMap(Map<String, Object> resp) throws IOException {
 
-        // 1️⃣ Convert Map → JSON
+        // 1 Convert Map -> JSON
         String rawJson = objectMapper.writeValueAsString(resp);
 
-        // 2️⃣ Build Prompt
+        // 2 Build Prompt
         String prompt = buildPrompt(rawJson);
 
-        // 3️⃣ Build Request Body
+        // 3 Build Request Body
         String requestBody = buildRequestBody(prompt);
 
 
@@ -92,7 +93,7 @@ public class OpenAIService {
 ================= INPUT DATA =================
 """
  + rawJson +
- 
+
  """
 ================================================
 
@@ -101,14 +102,14 @@ Now:
 1. Extract information from input.
 2. Validate JSON syntax before returning.
 3. please try to add more information that you feel is needed and not available in the input json
-4. please must add all the links in response json from raw json inside important links key (do not remove any links) 
+4. please must add all the links in response json from raw json inside important links key (do not remove any links)
 5. please always try to add description and vacancy details.
-6. please do not put exampattern under vacancy detail it should contain total vacancy and post wise vacancy and category wise vacancy. 
-7.please create section for exam process and pattern 
+6. please do not put exampattern under vacancy detail it should contain total vacancy and post wise vacancy and category wise vacancy.
+7.please create section for exam process and pattern
 8. please do not use any parent key for the json (means json should start with {)
-9. use key title for title(always modify from input), advertisement_no for advertisement and also add key post_name, eligibility(includes age limit and educational eligibiity) rest all keys word should we spaces seperated 
+9. use key title for title(always modify from input), advertisement_no for advertisement and also add key post_name, eligibility(includes age limit and educational eligibiity) rest all keys word should we spaces seperated
 Return final valid JSON only.
- """ ;
+ """;
     }
 
 
@@ -131,8 +132,8 @@ Return final valid JSON only.
             }
           ],
           "temperature": 0.05,
-          "max_tokens": 4000
-        } 
+          "max_tokens": 6000
+        }
         """.formatted(escapedPrompt);
     }
 
@@ -170,5 +171,55 @@ Return final valid JSON only.
         return content;
     }
 
-}
+    public String generateCurrentAffairsQuizJson(LocalDate quizDate) throws Exception {
+        String prompt = buildCurrentAffairsPrompt(quizDate);
+        String requestBody = buildRequestBody(prompt);
 
+        Request request = new Request.Builder()
+                .url(OPENAI_URL)
+                .post(RequestBody.create(requestBody, JSON))
+                .addHeader("Authorization", "Bearer " + apiKey)
+                .addHeader("Content-Type", "application/json")
+                .build();
+
+        try (Response response = client.newCall(request).execute()) {
+
+            if (!response.isSuccessful()) {
+                throw new RuntimeException(
+                        "OpenAI API Error: " + response.code() +
+                                " | " + response.message()
+                );
+            }
+
+            String raw = response.body().string();
+            return extractCleanJson(raw);
+        }
+    }
+
+    private String buildCurrentAffairsPrompt(LocalDate quizDate) {
+        return """
+Generate exactly one JSON object for a daily current affairs MCQ quiz.
+Target date: %s
+
+Rules:
+1) Return valid JSON only. No markdown, no comments, no extra text.
+2) Include top-level keys:
+   - title
+   - quiz_date (YYYY-MM-DD)
+   - topic (Current Affairs)
+   - total_questions (must be 20)
+   - questions (array of 20 items)
+3) Each question item must contain:
+   - question
+   - options (array of exactly 4 string options)
+   - correct_option (must exactly match one option text)
+   - difficulty_level (Easy/Medium/Hard)
+   - exam_name (example: UPSC, SSC, Banking, Railways, State PSC)
+   - details_description (2-4 lines explanation)
+4) Questions must be based on recent India + global current affairs and should be useful for competitive exams.
+5) Keep language clear and exam-ready.
+6) Ensure no duplicate questions and no empty fields.
+""".formatted(quizDate);
+    }
+
+}
