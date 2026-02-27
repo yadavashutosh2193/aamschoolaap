@@ -36,10 +36,10 @@ public class CurrentAffairsQuizService {
     public CurrentAffairsQuiz generateAndSaveTodayQuiz() throws Exception {
         LocalDate today = LocalDate.now();
 
-        //Optional<CurrentAffairsQuiz> existing = quizRepository.findFirstByCreatedAtOrderByQuizIdDesc(today);
-       // if (existing.isPresent()) {
-         //   return existing.get();
-        //}
+        Optional<CurrentAffairsQuiz> existing = quizRepository.findFirstByCreatedAtOrderByQuizIdDesc(today);
+       if (existing.isPresent()) {
+            return existing.get();
+        }
 
         String cleanJson = openAIService.generateCurrentAffairsQuizJson(today);
         JsonNode quizRoot = objectMapper.readTree(cleanJson);
