@@ -19,50 +19,58 @@ import aamscool.backend.aamschoolbackend.repository.JobsRepository;
 @Service
 public class JobsService {
 
-	@Autowired
-	JobsRepository jobDao;
-	private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
-	
-	public Optional<JobPosts> getPost(long id) {
-		return jobDao.findById(id);
-		
-	}
-	public List<HomePageLinksModel> getLatestJob(String label) {
-		List<HomePageLinksModel> links = jobDao.getJobIdandTile(label);
-		links = links.stream().sorted(Comparator.comparing(HomePageLinksModel::getPostDate).reversed()).toList();
-		return links;
-	}
-	
-	@Transactional
+    @Autowired
+    JobsRepository jobDao;
+
+    @Autowired
+    TelegramNotifierService telegramNotifierService;
+
+    private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
+
+    public Optional<JobPosts> getPost(long id) {
+        return jobDao.findById(id);
+    }
+
+    public List<HomePageLinksModel> getLatestJob(String label) {
+        List<HomePageLinksModel> links = jobDao.getJobIdandTile(label);
+        links = links.stream().sorted(Comparator.comparing(HomePageLinksModel::getPostDate).reversed()).toList();
+        return links;
+    }
+
+    @Transactional
     public JobPosts savePost(JobPosts job) {
         try {
-            // Check if both label and advertisementNo match an existing record
             Optional<JobPosts> existing = Optional.empty();
 
-            if (job.getLabel() != null && job.getAdvertisementNo() != null &&
-                !job.getLabel().isBlank() && !job.getAdvertisementNo().isBlank()) {
+            if (job.getLabel() != null && job.getAdvertisementNo() != null
+                    && !job.getLabel().isBlank() && !job.getAdvertisementNo().isBlank()) {
                 existing = jobDao.findByLabelAndAdvertisementNo(job.getLabel(), job.getAdvertisementNo());
             }
 
             if (existing.isPresent()) {
                 JobPosts old = existing.get();
 
-                // ✅ Update existing record
                 old.setTitle(job.getTitle());
                 old.setJobId(old.getJobId());
                 old.setContent(job.getContent());
                 old.setCreatedAt(LocalDate.now());
-                old.setApproved(false); // Reset approval since content changed
-                log.info("saving existing job with job title = " +old.getTitle()+ "jobId = " + old.getJobId());
+                old.setApproved(false);
+                log.info("saving existing job with job title = {} jobId = {}", old.getTitle(), old.getJobId());
                 return jobDao.save(old);
 
             } else {
-                // ✅ Create new record
                 job.setCreatedAt(LocalDate.now());
                 job.setApproved(false);
-                log.info("saving existing job with job title = " +job.getTitle());
-                
-                return jobDao.save(job);
+                log.info("saving new job with job title = {}", job.getTitle());
+
+                JobPosts saved = jobDao.save(job);
+                try {
+                    telegramNotifierService.sendJobUpdate(saved);
+                } catch (Exception ex) {
+                    log.error("Telegram notification failed for jobId={}", saved.getJobId(), ex);
+                }
+
+                return saved;
             }
 
         } catch (Exception e) {
