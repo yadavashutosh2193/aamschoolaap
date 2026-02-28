@@ -45,9 +45,9 @@ public class UserController {
     @PostMapping
     public ResponseEntity<UserDto> createUser(@RequestBody UserCreateRequest request, Authentication authentication) {
         UserRole role = request.getRole() == null ? UserRole.STUDENT : request.getRole();
-        //if (role == UserRole.ADMIN && !hasRole(authentication, "ROLE_ADMIN")) {
-          //  return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        //}
+        if (role == UserRole.ADMIN && !hasRole(authentication, "ROLE_ADMIN")) {
+           return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
         request.setRole(role);
         UserDto created = userAccountService.createUser(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
