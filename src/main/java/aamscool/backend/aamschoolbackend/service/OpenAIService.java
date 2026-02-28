@@ -2,6 +2,7 @@ package aamscool.backend.aamschoolbackend.service;
 
 import java.io.IOException;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -172,7 +173,7 @@ Return final valid JSON only.
     }
 
     public String generateCurrentAffairsQuizJson(LocalDate quizDate) throws Exception {
-        String prompt = buildCurrentAffairsPrompt(quizDate);
+        String prompt = buildCurrentAffairsPrompt(quizDate, 20, List.of());
         String requestBody = buildRequestBody(prompt);
 
         Request request = new Request.Builder()
@@ -196,7 +197,58 @@ Return final valid JSON only.
         }
     }
 
-    private String buildCurrentAffairsPrompt(LocalDate quizDate) {
+    public String generateCurrentAffairsQuizJson(LocalDate quizDate, int count, List<String> avoidQuestions) throws Exception {
+        String prompt = buildCurrentAffairsPrompt(quizDate, count, avoidQuestions);
+        String requestBody = buildRequestBody(prompt);
+
+        Request request = new Request.Builder()
+                .url(OPENAI_URL)
+                .post(RequestBody.create(requestBody, JSON))
+                .addHeader("Authorization", "Bearer " + apiKey)
+                .addHeader("Content-Type", "application/json")
+                .build();
+
+        try (Response response = client.newCall(request).execute()) {
+
+            if (!response.isSuccessful()) {
+                throw new RuntimeException(
+                        "OpenAI API Error: " + response.code() +
+                                " | " + response.message()
+                );
+            }
+
+            String raw = response.body().string();
+            return extractCleanJson(raw);
+        }
+    }
+
+    public String generateCurrentAffairsQuizQuestions(LocalDate quizDate, int count, List<String> avoidQuestions) throws Exception {
+        String prompt = buildCurrentAffairsQuestionsOnlyPrompt(quizDate, count, avoidQuestions);
+        String requestBody = buildRequestBody(prompt);
+
+        Request request = new Request.Builder()
+                .url(OPENAI_URL)
+                .post(RequestBody.create(requestBody, JSON))
+                .addHeader("Authorization", "Bearer " + apiKey)
+                .addHeader("Content-Type", "application/json")
+                .build();
+
+        try (Response response = client.newCall(request).execute()) {
+
+            if (!response.isSuccessful()) {
+                throw new RuntimeException(
+                        "OpenAI API Error: " + response.code() +
+                                " | " + response.message()
+                );
+            }
+
+            String raw = response.body().string();
+            return extractCleanJson(raw);
+        }
+    }
+
+    private String buildCurrentAffairsPrompt(LocalDate quizDate, int count, List<String> avoidQuestions) {
+        String avoidBlock = buildAvoidQuestionsBlock(avoidQuestions);
         return """
 Generate exactly one JSON object for a daily current affairs MCQ quiz.
 Target date: %s
@@ -207,8 +259,8 @@ Rules:
    - title
    - quiz_date (YYYY-MM-DD)
    - topic (Current Affairs)
-   - total_questions (must be 20)
-   - questions (array of 20 items)
+   - total_questions (must be %d)
+   - questions (array of %d items)
 3) Each question item must contain:
    - question
    - options (array of exactly 4 string options)
@@ -219,7 +271,44 @@ Rules:
 4) Questions must be based on recent India + global current affairs and should be useful for competitive exams.
 5) Keep language clear and exam-ready.
 6) Ensure no duplicate questions and no empty fields.
-""".formatted(quizDate);
+7) Cover a balanced mix of topics: polity/governance, economy, science & tech, environment, international relations, and national schemes.
+%s
+""".formatted(quizDate, count, count, avoidBlock);
     }
 
+    private String buildCurrentAffairsQuestionsOnlyPrompt(LocalDate quizDate, int count, List<String> avoidQuestions) {
+        String avoidBlock = buildAvoidQuestionsBlock(avoidQuestions);
+        return """
+Generate a JSON array of exactly %d MCQ questions for a daily current affairs quiz.
+Target date: %s
+
+Rules:
+1) Return a JSON array only. No markdown, no comments, no extra text.
+2) Each question item must contain:
+   - question
+   - options (array of exactly 4 string options)
+   - correct_option (must exactly match one option text)
+   - difficulty_level (Easy/Medium/Hard)
+   - exam_name (example: UPSC, SSC, Banking, Railways, State PSC)
+   - details_description (2-4 lines explanation)
+3) Questions must be based on recent India + global current affairs and should be useful for competitive exams.
+4) Keep language clear and exam-ready.
+5) Ensure no duplicate questions and no empty fields.
+%s
+""".formatted(count, quizDate, avoidBlock);
+    }
+
+    private String buildAvoidQuestionsBlock(List<String> avoidQuestions) {
+        if (avoidQuestions == null || avoidQuestions.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Do not repeat or paraphrase any of the following questions:\n");
+        int limit = Math.min(avoidQuestions.size(), 120);
+        for (int i = 0; i < limit; i++) {
+            sb.append("- ").append(avoidQuestions.get(i)).append("\n");
+        }
+        return sb.toString();
+    }
 }

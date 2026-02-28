@@ -74,7 +74,7 @@ public class HomepageScraperService {
                         Elements links = ul.select("a");
 
                         for (Element link : links) {
-                        	if(posts.size() < 5)
+                        	if(posts.size() < 2)
                             posts.add(new Post(
                                     link.text().trim(),
                                     link.absUrl("href")

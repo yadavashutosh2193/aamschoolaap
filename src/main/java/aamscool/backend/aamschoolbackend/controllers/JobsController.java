@@ -10,9 +10,11 @@ import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -26,6 +28,7 @@ import aamscool.backend.aamschoolbackend.model.HomePageLinksModel;
 import aamscool.backend.aamschoolbackend.model.JobPosts;
 import aamscool.backend.aamschoolbackend.model.ScrapeCache;
 import aamscool.backend.aamschoolbackend.service.JobsService;
+
 
 
 @RestController
@@ -131,6 +134,52 @@ public class JobsController {
             ));
         }
     }
+
+	@PutMapping("/{id}")
+	public ResponseEntity<Map<String, Object>> updateJob(
+			@PathVariable("id") long id,
+			@RequestBody JsonNode payload) {
+		try {
+			JobPosts updates = parseJobFromPayload(payload);
+			Optional<JobPosts> updated = jobsService.updateJob(id, updates);
+			if (updated.isEmpty()) {
+				return ResponseEntity.notFound().build();
+			}
+			ScrapeCache.jsondata.invalidate(id);
+			String label = updated.get().getLabel();
+			if (label != null) {
+				ScrapeCache.dataCache.invalidate(label);
+			}
+			return ResponseEntity.ok(Map.of(
+					"status", "success",
+					"message", "Job updated",
+					"jobId", updated.get().getJobId()
+			));
+		} catch (JsonProcessingException e) {
+			return ResponseEntity.badRequest().body(Map.of(
+					"status", "error",
+					"message", "Invalid JSON format: " + e.getOriginalMessage()
+			));
+		} catch (Exception e) {
+			return ResponseEntity.internalServerError().body(Map.of(
+					"status", "error",
+					"message", "Failed to update job: " + e.getMessage()
+			));
+		}
+	}
+
+	@DeleteMapping("/{id}")
+	public ResponseEntity<Map<String, Object>> deleteJob(@PathVariable("id") long id) {
+		boolean deleted = jobsService.deleteJob(id);
+		if (!deleted) {
+			return ResponseEntity.notFound().build();
+		}
+		ScrapeCache.jsondata.invalidate(id);
+		return ResponseEntity.ok(Map.of(
+				"status", "success",
+				"message", "Job deleted"
+		));
+	}
 	
 	private long extractIdFromSlug(String slug) {
 	    try {
@@ -140,6 +189,66 @@ public class JobsController {
 	    } catch (Exception e) {
 	        return -1;
 	    }
+	}
+
+	private JobPosts parseJobFromPayload(JsonNode payload) throws JsonProcessingException {
+		JobPosts job = new JobPosts();
+		if (payload == null || payload.isNull()) {
+			return job;
+		}
+		String title = getTextOrNull(payload, "title");
+		String advertisementNo = getTextOrNull(payload, "advertisement_no");
+		if (advertisementNo == null) {
+			advertisementNo = getTextOrNull(payload, "advertisementNo");
+		}
+		String label = getTextOrNull(payload, "label");
+		String createdAtText = getTextOrNull(payload, "createdAt");
+		String content = extractContentJson(payload);
+		if (title != null) {
+			job.setTitle(title);
+		}
+		if (advertisementNo != null) {
+			job.setAdvertisementNo(advertisementNo);
+		}
+		if (label != null) {
+			job.setLabel(label);
+		}
+		if (createdAtText != null) {
+			try {
+				job.setCreatedAt(LocalDate.parse(createdAtText));
+			} catch (Exception ex) {
+				// ignore invalid date
+			}
+		}
+		if (content != null) {
+			job.setContent(content);
+		}
+		return job;
+	}
+
+	private String extractContentJson(JsonNode payload) throws JsonProcessingException {
+		JsonNode contentNode = payload.get("content");
+		if (contentNode == null || contentNode.isNull()) {
+			return null;
+		}
+		if (contentNode.isTextual()) {
+			String text = contentNode.asText("");
+			if (text.isBlank()) {
+				return null;
+			}
+			mapper.readTree(text);
+			return text;
+		}
+		return mapper.writeValueAsString(contentNode);
+	}
+
+	private String getTextOrNull(JsonNode payload, String field) {
+		JsonNode node = payload.get(field);
+		if (node == null || node.isNull()) {
+			return null;
+		}
+		String text = node.asText();
+		return text != null && !text.isBlank() ? text : null;
 	}
 
 }

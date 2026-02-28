@@ -31,9 +31,51 @@ public class JobsService {
         return jobDao.findById(id);
     }
 
+    public JobPosts createJob(JobPosts job) {
+        return jobDao.save(job);
+    }
+
+    public Optional<JobPosts> updateJob(long id, JobPosts updates) {
+        Optional<JobPosts> existing = jobDao.findById(id);
+        if (existing.isEmpty()) {
+            return Optional.empty();
+        }
+        JobPosts job = existing.get();
+        if (updates.getLabel() != null) {
+            job.setLabel(updates.getLabel());
+        }
+        if (updates.getTitle() != null) {
+            job.setTitle(updates.getTitle());
+        }
+        if (updates.getAdvertisementNo() != null) {
+            job.setAdvertisementNo(updates.getAdvertisementNo());
+        }
+        if (updates.getCreatedAt() != null) {
+            job.setCreatedAt(updates.getCreatedAt());
+        }
+        if (updates.getContent() != null) {
+            job.setContent(updates.getContent());
+        }
+        job.setApproved(updates.isApproved());
+        return Optional.of(jobDao.save(job));
+    }
+
+    public boolean deleteJob(long id) {
+        if (!jobDao.existsById(id)) {
+            return false;
+        }
+        jobDao.deleteById(id);
+        return true;
+    }
+
     public List<HomePageLinksModel> getLatestJob(String label) {
         List<HomePageLinksModel> links = jobDao.getJobIdandTile(label);
-        links = links.stream().sorted(Comparator.comparing(HomePageLinksModel::getPostDate).reversed()).toList();
+        links = links.stream()
+                .sorted(Comparator.comparing(
+                        HomePageLinksModel::getPostDate,
+                        Comparator.nullsLast(Comparator.reverseOrder())
+                ))
+                .toList();
         return links;
     }
 
