@@ -50,6 +50,14 @@ public class UserAccountService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
     }
 
+    public UserAccount getUserByEmail(String emailId) {
+        if (emailId == null || emailId.isBlank()) {
+            throw new IllegalArgumentException("Email is required");
+        }
+        return userAccountRepository.findByEmailId(emailId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+    }
+
     @Transactional
     public UserDto createUser(UserCreateRequest request) {
         if (request.getUsername() == null || request.getUsername().isBlank()) {

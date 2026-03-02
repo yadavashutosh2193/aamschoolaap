@@ -1,25 +1,33 @@
 package aamscool.backend.aamschoolbackend.controllers;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import aamscool.backend.aamschoolbackend.dto.LoginRequest;
+import aamscool.backend.aamschoolbackend.dto.LoginResponse;
 import aamscool.backend.aamschoolbackend.dto.UserCreateRequest;
 import aamscool.backend.aamschoolbackend.dto.UserDto;
 import aamscool.backend.aamschoolbackend.dto.UserRole;
 import aamscool.backend.aamschoolbackend.model.UserAccount;
+import aamscool.backend.aamschoolbackend.security.JwtService;
+import aamscool.backend.aamschoolbackend.security.JwtTokenBlacklistService;
 import aamscool.backend.aamschoolbackend.service.UserAccountService;
 
 @RestController
@@ -27,9 +35,16 @@ import aamscool.backend.aamschoolbackend.service.UserAccountService;
 public class UserController {
 
     private final UserAccountService userAccountService;
+    private final UserDetailsService userDetailsService;
+    private final JwtService jwtService;
+    private final JwtTokenBlacklistService blacklistService;
 
-    public UserController(UserAccountService userAccountService) {
+    public UserController(UserAccountService userAccountService, UserDetailsService userDetailsService,
+            JwtService jwtService, JwtTokenBlacklistService blacklistService) {
         this.userAccountService = userAccountService;
+        this.userDetailsService = userDetailsService;
+        this.jwtService = jwtService;
+        this.blacklistService = blacklistService;
     }
 
     @GetMapping
@@ -59,9 +74,29 @@ public class UserController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<UserDto> login(@RequestBody LoginRequest request) {
+    public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request) {
         UserDto user = userAccountService.login(request.getEmailId(), request.getPassword());
-        return ResponseEntity.ok(user);
+        UserAccount account = userAccountService.getUserByEmail(request.getEmailId());
+        UserDetails userDetails = userDetailsService.loadUserByUsername(account.getEmailId());
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("role", account.getRole().name());
+        claims.put("username", account.getUsername());
+        String token = jwtService.generateToken(userDetails, claims);
+
+        LoginResponse response = new LoginResponse();
+        response.setToken(token);
+        response.setUser(user);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        }
+        String token = authorization.substring(7);
+        blacklistService.blacklist(token);
+        return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/{id}")

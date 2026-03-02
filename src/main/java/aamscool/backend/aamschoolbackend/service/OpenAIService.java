@@ -249,6 +249,8 @@ Return final valid JSON only.
 
     private String buildCurrentAffairsPrompt(LocalDate quizDate, int count, List<String> avoidQuestions) {
         String avoidBlock = buildAvoidQuestionsBlock(avoidQuestions);
+        int currentYear = quizDate.getYear();
+        int previousYear = currentYear - 1;
         return """
 Generate exactly one JSON object for a daily current affairs MCQ quiz.
 Target date: %s
@@ -268,16 +270,18 @@ Rules:
    - difficulty_level (Easy/Medium/Hard)
    - exam_name (example: UPSC, SSC, Banking, Railways, State PSC)
    - details_description (2-4 lines explanation)
-4) Questions must be based on recent India + global current affairs and should be useful for competitive exams.
+4) Questions must be based on India + global current affairs from %d and %d only, and should be useful for competitive exams.
 5) Keep language clear and exam-ready.
 6) Ensure no duplicate questions and no empty fields.
 7) Cover a balanced mix of topics: polity/governance, economy, science & tech, environment, international relations, and national schemes.
 %s
-""".formatted(quizDate, count, count, avoidBlock);
+""".formatted(quizDate, count, count, currentYear, previousYear, avoidBlock);
     }
 
     private String buildCurrentAffairsQuestionsOnlyPrompt(LocalDate quizDate, int count, List<String> avoidQuestions) {
         String avoidBlock = buildAvoidQuestionsBlock(avoidQuestions);
+        int currentYear = quizDate.getYear();
+        int previousYear = currentYear - 1;
         return """
 Generate a JSON array of exactly %d MCQ questions for a daily current affairs quiz.
 Target date: %s
@@ -291,11 +295,11 @@ Rules:
    - difficulty_level (Easy/Medium/Hard)
    - exam_name (example: UPSC, SSC, Banking, Railways, State PSC)
    - details_description (2-4 lines explanation)
-3) Questions must be based on recent India + global current affairs and should be useful for competitive exams.
+3) Questions must be based on India + global current affairs from %d and %d only, and should be useful for competitive exams.
 4) Keep language clear and exam-ready.
 5) Ensure no duplicate questions and no empty fields.
 %s
-""".formatted(count, quizDate, avoidBlock);
+""".formatted(count, quizDate, currentYear, previousYear, avoidBlock);
     }
 
     private String buildAvoidQuestionsBlock(List<String> avoidQuestions) {
