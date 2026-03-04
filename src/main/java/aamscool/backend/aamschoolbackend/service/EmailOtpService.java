@@ -21,6 +21,7 @@ import aamscool.backend.aamschoolbackend.repository.EmailOtpRepository;
 public class EmailOtpService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final String WEBSITE_NAME = "aamschool.in";
 
     private final EmailOtpRepository emailOtpRepository;
     private final JavaMailSender mailSender;
@@ -143,15 +144,23 @@ public class EmailOtpService {
             message.setFrom(fromEmail);
         }
         message.setTo(emailId);
-        message.setSubject(purpose == OtpPurpose.SIGNUP ? "Verify your email OTP" : "Reset password OTP");
+        message.setSubject(purpose == OtpPurpose.SIGNUP
+                ? "aamschool.in signup verification code"
+                : "aamschool.in password reset verification code");
         message.setText(buildMessageBody(purpose, otpCode));
         mailSender.send(message);
     }
 
     private String buildMessageBody(OtpPurpose purpose, String otpCode) {
-        String action = purpose == OtpPurpose.SIGNUP ? "complete your signup" : "reset your password";
-        return "Your OTP is " + otpCode + ". Use this code to " + action
-                + ". The OTP expires in " + otpExpiryMinutes + " minutes.";
+        String actionLine = purpose == OtpPurpose.SIGNUP
+                ? "Use this code to complete your signup on " + WEBSITE_NAME + "."
+                : "Use this code to reset your password for " + WEBSITE_NAME + ".";
+        return "Hello,\n\n"
+                + "Your verification code for " + WEBSITE_NAME + " is: " + otpCode + "\n\n"
+                + actionLine + "\n"
+                + "This code will expire in " + otpExpiryMinutes + " minutes.\n\n"
+                + "If you did not request this code, you can ignore this email.\n\n"
+                + "Team " + WEBSITE_NAME;
     }
 
     private void enforceRateLimit(String emailId, OtpPurpose purpose) {
