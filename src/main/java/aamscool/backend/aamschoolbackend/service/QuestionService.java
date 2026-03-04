@@ -210,7 +210,7 @@ public class QuestionService {
             question.setDifficulty(Difficulty.valueOf(difficulty));
         }
         if (dto.getLanguage() != null) {
-            question.setLanguage(Language.valueOf(dto.getLanguage()));
+            question.setLanguage(Language.from(dto.getLanguage()));
         }
         if (dto.getMarks() != null || isCreate) {
             question.setMarks(dto.getMarks());

@@ -18,10 +18,17 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import aamscool.backend.aamschoolbackend.dto.LoginRequest;
 import aamscool.backend.aamschoolbackend.dto.LoginResponse;
+import aamscool.backend.aamschoolbackend.dto.EmailOtpRequest;
+import aamscool.backend.aamschoolbackend.dto.EmailOtpVerifyRequest;
+import aamscool.backend.aamschoolbackend.dto.ForgotPasswordResetRequest;
+import aamscool.backend.aamschoolbackend.dto.GoogleLoginRequest;
+import aamscool.backend.aamschoolbackend.dto.MessageResponse;
+import aamscool.backend.aamschoolbackend.dto.PagedResponse;
 import aamscool.backend.aamschoolbackend.dto.UserCreateRequest;
 import aamscool.backend.aamschoolbackend.dto.UserDto;
 import aamscool.backend.aamschoolbackend.dto.UserRole;
@@ -48,8 +55,30 @@ public class UserController {
     }
 
     @GetMapping
-    public List<UserDto> getAllUsers() {
-        return userAccountService.getAllUsers();
+    public ResponseEntity<List<UserDto>> getAllUsers(Authentication authentication) {
+        if (!hasRole(authentication, "ROLE_ADMIN")) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        return ResponseEntity.ok(userAccountService.getAllUsers());
+    }
+
+    @GetMapping("/registered")
+    public ResponseEntity<List<UserDto>> getRegisteredUsers(Authentication authentication) {
+        if (!hasRole(authentication, "ROLE_ADMIN")) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        return ResponseEntity.ok(userAccountService.getRegisteredUsers());
+    }
+
+    @GetMapping("/registered/paged")
+    public ResponseEntity<PagedResponse<UserDto>> getRegisteredUsersPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size,
+            Authentication authentication) {
+        if (!hasRole(authentication, "ROLE_ADMIN")) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        return ResponseEntity.ok(userAccountService.getRegisteredUsers(page, size));
     }
 
     @GetMapping("/{id}")
@@ -69,24 +98,35 @@ public class UserController {
     }
 
     @PostMapping("/signup")
-    public ResponseEntity<UserDto> signup(@RequestBody UserCreateRequest request, Authentication authentication) {
-        return createUser(request, authentication);
+    public ResponseEntity<UserDto> signup(@RequestBody UserCreateRequest request) {
+        UserDto created = userAccountService.signup(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    @PostMapping("/signup/send-otp")
+    public ResponseEntity<MessageResponse> sendSignupOtp(@RequestBody EmailOtpRequest request) {
+        userAccountService.sendSignupOtp(request == null ? null : request.getEmailId());
+        return ResponseEntity.ok(new MessageResponse("Signup OTP sent to email"));
+    }
+
+    @PostMapping("/signup/verify-otp")
+    public ResponseEntity<MessageResponse> verifySignupOtp(@RequestBody EmailOtpVerifyRequest request) {
+        userAccountService.verifySignupOtp(request == null ? null : request.getEmailId(), request == null ? null : request.getOtp());
+        return ResponseEntity.ok(new MessageResponse("Email OTP verified"));
     }
 
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request) {
         UserDto user = userAccountService.login(request.getEmailId(), request.getPassword());
         UserAccount account = userAccountService.getUserByEmail(request.getEmailId());
-        UserDetails userDetails = userDetailsService.loadUserByUsername(account.getEmailId());
-        Map<String, Object> claims = new HashMap<>();
-        claims.put("role", account.getRole().name());
-        claims.put("username", account.getUsername());
-        String token = jwtService.generateToken(userDetails, claims);
+        return ResponseEntity.ok(buildLoginResponse(account, user));
+    }
 
-        LoginResponse response = new LoginResponse();
-        response.setToken(token);
-        response.setUser(user);
-        return ResponseEntity.ok(response);
+    @PostMapping("/login/google")
+    public ResponseEntity<LoginResponse> loginWithGoogle(@RequestBody GoogleLoginRequest request) {
+        UserDto user = userAccountService.loginWithGoogle(request == null ? null : request.getIdToken());
+        UserAccount account = userAccountService.getUserByEmail(user.getEmailId());
+        return ResponseEntity.ok(buildLoginResponse(account, user));
     }
 
     @PostMapping("/logout")
@@ -97,6 +137,21 @@ public class UserController {
         String token = authorization.substring(7);
         blacklistService.blacklist(token);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/forgot-password/send-otp")
+    public ResponseEntity<MessageResponse> sendForgotPasswordOtp(@RequestBody EmailOtpRequest request) {
+        userAccountService.sendForgotPasswordOtp(request == null ? null : request.getEmailId());
+        return ResponseEntity.ok(new MessageResponse("Password reset OTP sent to email"));
+    }
+
+    @PostMapping("/forgot-password/reset")
+    public ResponseEntity<MessageResponse> resetPassword(@RequestBody ForgotPasswordResetRequest request) {
+        userAccountService.resetPassword(
+                request == null ? null : request.getEmailId(),
+                request == null ? null : request.getOtp(),
+                request == null ? null : request.getNewPassword());
+        return ResponseEntity.ok(new MessageResponse("Password reset successful"));
     }
 
     @PutMapping("/{id}")
@@ -119,6 +174,24 @@ public class UserController {
         }
         userAccountService.deleteUser(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{id}/block")
+    public ResponseEntity<UserDto> blockUser(@PathVariable Long id, Authentication authentication) {
+        if (!hasRole(authentication, "ROLE_ADMIN")) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        UserDto updated = userAccountService.updateBlockedStatus(id, true);
+        return ResponseEntity.ok(updated);
+    }
+
+    @PutMapping("/{id}/unblock")
+    public ResponseEntity<UserDto> unblockUser(@PathVariable Long id, Authentication authentication) {
+        if (!hasRole(authentication, "ROLE_ADMIN")) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        UserDto updated = userAccountService.updateBlockedStatus(id, false);
+        return ResponseEntity.ok(updated);
     }
 
     private boolean hasRole(Authentication authentication, String role) {
@@ -144,5 +217,18 @@ public class UserController {
         } catch (IllegalArgumentException ex) {
             return false;
         }
+    }
+
+    private LoginResponse buildLoginResponse(UserAccount account, UserDto user) {
+        UserDetails userDetails = userDetailsService.loadUserByUsername(account.getEmailId());
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("role", account.getRole().name());
+        claims.put("username", account.getUsername());
+        String token = jwtService.generateToken(userDetails, claims);
+
+        LoginResponse response = new LoginResponse();
+        response.setToken(token);
+        response.setUser(user);
+        return response;
     }
 }

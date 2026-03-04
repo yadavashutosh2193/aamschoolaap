@@ -1,11 +1,14 @@
 package aamscool.backend.aamschoolbackend.service;
 
+import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -21,9 +24,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import aamscool.backend.aamschoolbackend.dto.CurrentAffairsQuizAttemptStatsDto;
+import aamscool.backend.aamschoolbackend.dto.CurrentAffairsQuizSubmissionAnswerDto;
+import aamscool.backend.aamschoolbackend.dto.CurrentAffairsQuizSubmitRequest;
+import aamscool.backend.aamschoolbackend.model.CurrentAffairsQuizAttempt;
 import aamscool.backend.aamschoolbackend.model.CurrentAffairsQuiz;
 import aamscool.backend.aamschoolbackend.model.QuizListItem;
+import aamscool.backend.aamschoolbackend.model.UserAccount;
+import aamscool.backend.aamschoolbackend.repository.CurrentAffairsQuizAttemptRepository;
 import aamscool.backend.aamschoolbackend.repository.CurrentAffairsQuizRepository;
+import jakarta.transaction.Transactional;
 
 @Service
 public class CurrentAffairsQuizService {
@@ -40,10 +50,16 @@ public class CurrentAffairsQuizService {
     private CurrentAffairsQuizRepository quizRepository;
 
     @Autowired
+    private CurrentAffairsQuizAttemptRepository currentAffairsQuizAttemptRepository;
+
+    @Autowired
     private OpenAIService openAIService;
 
     @Autowired
     private TelegramNotifierService telegramNotifierService;
+
+    @Autowired
+    private UserAccountService userAccountService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -188,6 +204,81 @@ public class CurrentAffairsQuizService {
         return saved;
     }
 
+    @Transactional
+    public CurrentAffairsQuizAttemptStatsDto submitQuiz(long quizId, CurrentAffairsQuizSubmitRequest request, String currentUserEmail) {
+        if (currentUserEmail == null || currentUserEmail.isBlank()) {
+            throw new IllegalArgumentException("Login is required to submit the quiz");
+        }
+        if (request == null) {
+            throw new IllegalArgumentException("Submission request is required");
+        }
+
+        CurrentAffairsQuiz quiz = quizRepository.findById(quizId)
+                .orElseThrow(() -> new IllegalArgumentException("Quiz not found"));
+        UserAccount user = userAccountService.getUserByEmail(currentUserEmail);
+
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(quiz.getContent());
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Quiz content is not valid");
+        }
+
+        JsonNode questionsNode = root.path("questions");
+        if (!questionsNode.isArray() || questionsNode.isEmpty()) {
+            throw new IllegalArgumentException("Quiz has no questions");
+        }
+
+        Map<Integer, String> answerMap = normalizeAnswers(request.getAnswers(), questionsNode.size());
+
+        int totalQuestions = questionsNode.size();
+        int attemptedQuestions = 0;
+        int correctAnswers = 0;
+        int wrongAnswers = 0;
+
+        for (int i = 0; i < questionsNode.size(); i++) {
+            String selectedOption = answerMap.get(i);
+            if (selectedOption == null || selectedOption.isBlank()) {
+                continue;
+            }
+
+            attemptedQuestions++;
+            JsonNode questionNode = questionsNode.get(i);
+            String correctOption = questionNode.path("correct_option").asText("");
+            if (selectedOption.trim().equals(correctOption.trim())) {
+                correctAnswers++;
+            } else {
+                wrongAnswers++;
+            }
+        }
+
+        double score = correctAnswers;
+        double accuracy = attemptedQuestions == 0 ? 0.0 : (correctAnswers * 100.0) / attemptedQuestions;
+
+        CurrentAffairsQuizAttempt attempt = currentAffairsQuizAttemptRepository
+                .findByQuizQuizIdAndUserId(quizId, user.getId())
+                .orElseGet(CurrentAffairsQuizAttempt::new);
+        attempt.setQuiz(quiz);
+        attempt.setUser(user);
+        attempt.setTotalQuestions(totalQuestions);
+        attempt.setAttemptedQuestions(attemptedQuestions);
+        attempt.setCorrectAnswers(correctAnswers);
+        attempt.setWrongAnswers(wrongAnswers);
+        attempt.setScore(score);
+        attempt.setAccuracy(accuracy);
+        attempt.setTimeTakenSeconds(request.getTimeTakenSeconds());
+        attempt.setSubmittedAt(LocalDateTime.now());
+
+        CurrentAffairsQuizAttempt saved = currentAffairsQuizAttemptRepository.save(attempt);
+        return toAttemptStatsDto(saved);
+    }
+
+    public CurrentAffairsQuizAttemptStatsDto getQuizStatsForUser(long quizId, long userId) {
+        CurrentAffairsQuizAttempt attempt = currentAffairsQuizAttemptRepository.findByQuizQuizIdAndUserId(quizId, userId)
+                .orElseThrow(() -> new IllegalArgumentException("Current affairs quiz stats not found"));
+        return toAttemptStatsDto(attempt);
+    }
+
     private List<String> loadRecentQuestionTexts(int lookbackQuizzes) {
         List<String> questions = new ArrayList<>();
         quizRepository.findAll(PageRequest.of(0, lookbackQuizzes, Sort.by(Sort.Direction.DESC, "quizId")))
@@ -300,5 +391,43 @@ public class CurrentAffairsQuizService {
         normalized = normalized.replaceAll("\\s+", " ");
         normalized = normalized.replaceAll("[^a-z0-9\\s]", "");
         return normalized;
+    }
+
+    private Map<Integer, String> normalizeAnswers(List<CurrentAffairsQuizSubmissionAnswerDto> answers, int totalQuestions) {
+        Map<Integer, String> normalized = new HashMap<>();
+        if (answers == null) {
+            return normalized;
+        }
+
+        for (CurrentAffairsQuizSubmissionAnswerDto answer : answers) {
+            if (answer == null || answer.getQuestionIndex() == null) {
+                continue;
+            }
+            int questionIndex = answer.getQuestionIndex();
+            if (questionIndex < 0 || questionIndex >= totalQuestions) {
+                throw new IllegalArgumentException("Invalid question index: " + questionIndex);
+            }
+            normalized.put(questionIndex, answer.getSelectedOption());
+        }
+        return normalized;
+    }
+
+    private CurrentAffairsQuizAttemptStatsDto toAttemptStatsDto(CurrentAffairsQuizAttempt attempt) {
+        CurrentAffairsQuizAttemptStatsDto dto = new CurrentAffairsQuizAttemptStatsDto();
+        dto.setAttemptId(attempt.getId());
+        dto.setQuizId(attempt.getQuiz().getQuizId());
+        dto.setQuizTitle(attempt.getQuiz().getTitle());
+        dto.setQuizDate(attempt.getQuiz().getCreatedAt());
+        dto.setUserId(attempt.getUser().getId());
+        dto.setUsername(attempt.getUser().getUsername());
+        dto.setTotalQuestions(attempt.getTotalQuestions());
+        dto.setAttemptedQuestions(attempt.getAttemptedQuestions());
+        dto.setCorrectAnswers(attempt.getCorrectAnswers());
+        dto.setWrongAnswers(attempt.getWrongAnswers());
+        dto.setScore(attempt.getScore());
+        dto.setAccuracy(attempt.getAccuracy());
+        dto.setTimeTakenSeconds(attempt.getTimeTakenSeconds());
+        dto.setSubmittedAt(attempt.getSubmittedAt());
+        return dto;
     }
 }

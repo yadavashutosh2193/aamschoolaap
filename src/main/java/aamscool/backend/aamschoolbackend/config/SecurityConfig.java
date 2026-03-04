@@ -48,6 +48,7 @@ public class SecurityConfig {
                     .orElseThrow(() -> new UsernameNotFoundException("User not found"));
             UserDetails details = User.withUsername(user.getEmailId())
                     .password(user.getPasswordHash())
+                    .disabled(Boolean.TRUE.equals(user.getBlocked()))
                     .roles(user.getRole().name())
                     .build();
             return details;
@@ -64,6 +65,8 @@ public class SecurityConfig {
                 admin.setPhone("0000000000");
                 admin.setRole(UserRole.ADMIN);
                 admin.setPasswordHash(passwordEncoder.encode(adminPassword));
+                admin.setSubscriptionPlan("FREE");
+                admin.setBlocked(Boolean.FALSE);
                 userAccountRepository.save(admin);
             }
         };
@@ -78,9 +81,23 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/users/signup").denyAll()
+                        .requestMatchers(HttpMethod.POST, "/users/signup").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/users/signup/send-otp").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/users/signup/verify-otp").permitAll()
                         .requestMatchers(HttpMethod.POST, "/users/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/users/login/google").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/users/forgot-password/send-otp").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/users/forgot-password/reset").permitAll()
                         .requestMatchers(HttpMethod.POST, "/users/logout").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/quizzes/*/submit").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/current-affairs-quizzes/*/submit").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/current-affairs-quizzes/*/my-stats").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/current-affairs-quizzes/*/user-stats/*").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/users").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/users/registered").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/users/registered/paged").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/users/*/block").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/users/*/unblock").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/users/**").hasAnyRole("STUDENT", "ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/users/**").hasAnyRole("STUDENT", "ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/users/**").hasAnyRole("STUDENT", "ADMIN")

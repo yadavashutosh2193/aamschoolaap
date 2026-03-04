@@ -21,7 +21,7 @@ public class ScraperScheduler {
 
         log.info("Auto Scraper Started");
 
-        scraperService.runScraper();
+        //scraperService.runScraper();
 
         log.info("Auto Scraper Finished");
     }

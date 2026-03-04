@@ -24,7 +24,7 @@ public class UserAccount {
     @Column(nullable = false, unique = true)
     private String emailId;
 
-    @Column(nullable = false)
+    @Column
     private String phone;
 
     @Enumerated(EnumType.STRING)
@@ -33,6 +33,15 @@ public class UserAccount {
 
     @Column(nullable = false)
     private String passwordHash;
+
+    @Column(nullable = false)
+    private String subscriptionPlan = "FREE";
+
+    @Column(unique = true)
+    private String googleSubject;
+
+    @Column
+    private Boolean blocked = Boolean.FALSE;
 
     public Long getId() {
         return id;
@@ -80,5 +89,29 @@ public class UserAccount {
 
     public void setPasswordHash(String passwordHash) {
         this.passwordHash = passwordHash;
+    }
+
+    public String getSubscriptionPlan() {
+        return subscriptionPlan;
+    }
+
+    public void setSubscriptionPlan(String subscriptionPlan) {
+        this.subscriptionPlan = subscriptionPlan;
+    }
+
+    public String getGoogleSubject() {
+        return googleSubject;
+    }
+
+    public void setGoogleSubject(String googleSubject) {
+        this.googleSubject = googleSubject;
+    }
+
+    public Boolean getBlocked() {
+        return blocked;
+    }
+
+    public void setBlocked(Boolean blocked) {
+        this.blocked = blocked;
     }
 }

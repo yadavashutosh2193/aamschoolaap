@@ -1,9 +1,13 @@
 package aamscool.backend.aamschoolbackend.service;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -13,21 +17,33 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import aamscool.backend.aamschoolbackend.dto.ExamDto;
+import aamscool.backend.aamschoolbackend.dto.AdminQuizAttemptStatDto;
+import aamscool.backend.aamschoolbackend.dto.AdminSubjectQuizAttemptStatsDto;
+import aamscool.backend.aamschoolbackend.dto.LeaderboardEntryDto;
+import aamscool.backend.aamschoolbackend.dto.LeaderboardUserDto;
 import aamscool.backend.aamschoolbackend.dto.QuestionDto;
+import aamscool.backend.aamschoolbackend.dto.QuizAttemptResultDto;
 import aamscool.backend.aamschoolbackend.dto.QuizDto;
 import aamscool.backend.aamschoolbackend.dto.QuizGenerateRequest;
-import aamscool.backend.aamschoolbackend.dto.QuizQuestionDto;
+import aamscool.backend.aamschoolbackend.dto.QuizLeaderboardDto;
 import aamscool.backend.aamschoolbackend.dto.QuizListItemDto;
+import aamscool.backend.aamschoolbackend.dto.QuizQuestionDto;
+import aamscool.backend.aamschoolbackend.dto.QuizSubmissionAnswerDto;
+import aamscool.backend.aamschoolbackend.dto.QuizSubmitRequest;
 import aamscool.backend.aamschoolbackend.dto.TopicCountDto;
 import aamscool.backend.aamschoolbackend.model.Difficulty;
 import aamscool.backend.aamschoolbackend.model.Exam;
 import aamscool.backend.aamschoolbackend.model.Language;
 import aamscool.backend.aamschoolbackend.model.Question;
+import aamscool.backend.aamschoolbackend.model.QuestionChoice;
 import aamscool.backend.aamschoolbackend.model.QuestionStatus;
 import aamscool.backend.aamschoolbackend.model.Quiz;
+import aamscool.backend.aamschoolbackend.model.QuizAttempt;
 import aamscool.backend.aamschoolbackend.model.QuizQuestion;
+import aamscool.backend.aamschoolbackend.model.UserAccount;
 import aamscool.backend.aamschoolbackend.repository.ExamRepository;
 import aamscool.backend.aamschoolbackend.repository.QuestionRepository;
+import aamscool.backend.aamschoolbackend.repository.QuizAttemptRepository;
 import aamscool.backend.aamschoolbackend.repository.QuizQuestionRepository;
 import aamscool.backend.aamschoolbackend.repository.QuizRepository;
 
@@ -38,17 +54,22 @@ public class QuizService {
 
     private final QuizRepository quizRepository;
     private final QuizQuestionRepository quizQuestionRepository;
+    private final QuizAttemptRepository quizAttemptRepository;
     private final QuestionRepository questionRepository;
     private final ExamRepository examRepository;
     private final QuestionService questionService;
+    private final UserAccountService userAccountService;
 
     public QuizService(QuizRepository quizRepository, QuizQuestionRepository quizQuestionRepository,
-            QuestionRepository questionRepository, ExamRepository examRepository, QuestionService questionService) {
+            QuizAttemptRepository quizAttemptRepository, QuestionRepository questionRepository,
+            ExamRepository examRepository, QuestionService questionService, UserAccountService userAccountService) {
         this.quizRepository = quizRepository;
         this.quizQuestionRepository = quizQuestionRepository;
+        this.quizAttemptRepository = quizAttemptRepository;
         this.questionRepository = questionRepository;
         this.examRepository = examRepository;
         this.questionService = questionService;
+        this.userAccountService = userAccountService;
     }
 
     public List<QuizDto> getAll() {
@@ -76,7 +97,7 @@ public class QuizService {
             return new ArrayList<>();
         }
         List<Object[]> rows = quizRepository.countByTopicIn(topics);
-        java.util.Map<String, Long> counts = new java.util.HashMap<>();
+        Map<String, Long> counts = new HashMap<>();
         for (Object[] row : rows) {
             counts.put((String) row[0], (Long) row[1]);
         }
@@ -92,6 +113,155 @@ public class QuizService {
         Quiz quiz = quizRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Quiz not found"));
         return toDto(quiz);
+    }
+
+    @Transactional(readOnly = true)
+    public AdminSubjectQuizAttemptStatsDto getAttemptStatsBySubject(String subject) {
+        if (subject == null || subject.isBlank()) {
+            throw new IllegalArgumentException("Subject is required");
+        }
+
+        List<Quiz> quizzes = quizRepository.findBySubject(subject);
+        List<Long> quizIds = quizzes.stream().map(Quiz::getId).toList();
+        List<QuizAttempt> attempts = quizIds.isEmpty() ? new ArrayList<>() : quizAttemptRepository.findByQuizIdIn(quizIds);
+
+        Map<Long, Integer> attemptedCounts = new HashMap<>();
+        Map<Long, LocalDateTime> lastAttempted = new HashMap<>();
+        for (QuizAttempt attempt : attempts) {
+            Long quizId = attempt.getQuiz().getId();
+            attemptedCounts.put(quizId, attemptedCounts.getOrDefault(quizId, 0) + 1);
+
+            LocalDateTime submittedAt = attempt.getSubmittedAt();
+            LocalDateTime currentLatest = lastAttempted.get(quizId);
+            if (submittedAt != null && (currentLatest == null || submittedAt.isAfter(currentLatest))) {
+                lastAttempted.put(quizId, submittedAt);
+            }
+        }
+
+        List<AdminQuizAttemptStatDto> quizStats = new ArrayList<>();
+        int totalAttemptedCandidates = 0;
+        for (Quiz quiz : quizzes) {
+            int attemptedCandidates = attemptedCounts.getOrDefault(quiz.getId(), 0);
+            totalAttemptedCandidates += attemptedCandidates;
+
+            AdminQuizAttemptStatDto dto = new AdminQuizAttemptStatDto();
+            dto.setQuizId(quiz.getId());
+            dto.setTitle(quiz.getTitle());
+            dto.setSubject(quiz.getSubject());
+            dto.setTopic(quiz.getTopic());
+            dto.setSubTopic(quiz.getSubTopic());
+            dto.setTotalQuestions(quiz.getTotalQuestions());
+            dto.setTotalMarks(quiz.getTotalMarks());
+            dto.setAttemptedCandidates(attemptedCandidates);
+            dto.setLastAttemptedAt(lastAttempted.get(quiz.getId()));
+            quizStats.add(dto);
+        }
+
+        AdminSubjectQuizAttemptStatsDto response = new AdminSubjectQuizAttemptStatsDto();
+        response.setSubject(subject);
+        response.setTotalQuizzes(quizzes.size());
+        response.setTotalAttemptedCandidates(totalAttemptedCandidates);
+        response.setQuizzes(quizStats);
+        return response;
+    }
+
+    @Transactional
+    public QuizAttemptResultDto submitQuiz(Long quizId, QuizSubmitRequest request, String currentUserEmail) {
+        if (request == null) {
+            throw new IllegalArgumentException("Submission request is required");
+        }
+
+        Quiz quiz = quizRepository.findById(quizId)
+                .orElseThrow(() -> new IllegalArgumentException("Quiz not found"));
+        UserAccount user = resolveSubmissionUser(request.getUserId(), currentUserEmail);
+        List<QuizQuestion> quizQuestions = quizQuestionRepository.findByQuizIdOrderByOrderIndexAsc(quizId);
+        if (quizQuestions.isEmpty()) {
+            throw new IllegalArgumentException("Quiz has no questions");
+        }
+
+        Map<Long, Long> submittedAnswers = normalizeAnswers(request.getAnswers(), quizQuestions);
+
+        double score = 0.0;
+        int correctAnswers = 0;
+        int wrongAnswers = 0;
+        int attemptedQuestions = 0;
+        int totalMarks = quiz.getTotalMarks() == null
+                ? quizQuestions.stream().mapToInt(q -> q.getMarks() == null ? 0 : q.getMarks()).sum()
+                : quiz.getTotalMarks();
+
+        for (QuizQuestion quizQuestion : quizQuestions) {
+            Question question = quizQuestion.getQuestion();
+            question.setTotalAttempts((question.getTotalAttempts() == null ? 0L : question.getTotalAttempts()) + 1);
+
+            Long selectedChoiceId = submittedAnswers.get(quizQuestion.getId());
+            if (selectedChoiceId == null) {
+                continue;
+            }
+
+            attemptedQuestions++;
+            if (isCorrectChoice(question.getChoices(), selectedChoiceId)) {
+                correctAnswers++;
+                score += quizQuestion.getMarks() == null ? 0 : quizQuestion.getMarks();
+                question.setCorrectAttempts((question.getCorrectAttempts() == null ? 0L : question.getCorrectAttempts()) + 1);
+            } else {
+                wrongAnswers++;
+                score -= quizQuestion.getNegativeMarks() == null ? 0.0 : quizQuestion.getNegativeMarks();
+            }
+        }
+
+        double accuracy = attemptedQuestions == 0 ? 0.0 : (correctAnswers * 100.0) / attemptedQuestions;
+
+        QuizAttempt attempt = quizAttemptRepository.findByQuizIdAndUserId(quizId, user.getId())
+                .orElseGet(QuizAttempt::new);
+        attempt.setQuiz(quiz);
+        attempt.setUser(user);
+        attempt.setScore(score);
+        attempt.setTotalMarks(totalMarks);
+        attempt.setCorrectAnswers(correctAnswers);
+        attempt.setWrongAnswers(wrongAnswers);
+        attempt.setAttemptedQuestions(attemptedQuestions);
+        attempt.setAccuracy(accuracy);
+        attempt.setTimeTakenSeconds(request.getTimeTakenSeconds());
+        attempt.setSubmittedAt(LocalDateTime.now());
+
+        QuizAttempt savedAttempt = quizAttemptRepository.save(attempt);
+        return toAttemptResultDto(savedAttempt);
+    }
+
+    @Transactional(readOnly = true)
+    public QuizLeaderboardDto getLeaderboard(Long quizId, String currentUserEmail) {
+        Quiz quiz = quizRepository.findById(quizId)
+                .orElseThrow(() -> new IllegalArgumentException("Quiz not found"));
+
+        Long currentUserId = resolveCurrentUserId(currentUserEmail);
+        List<QuizAttempt> attempts = new ArrayList<>(quizAttemptRepository.findByQuizId(quizId));
+        attempts.sort(compareAttempts());
+
+        List<LeaderboardEntryDto> entries = new ArrayList<>();
+        int rank = 1;
+        for (QuizAttempt attempt : attempts) {
+            LeaderboardEntryDto entry = new LeaderboardEntryDto();
+            entry.setRank(rank++);
+            entry.setUser(toLeaderboardUserDto(attempt.getUser()));
+            entry.setScore(attempt.getScore());
+            entry.setTotalMarks(attempt.getTotalMarks());
+            entry.setCorrectAnswers(attempt.getCorrectAnswers());
+            entry.setWrongAnswers(attempt.getWrongAnswers());
+            entry.setAttemptedQuestions(attempt.getAttemptedQuestions());
+            entry.setAccuracy(attempt.getAccuracy());
+            entry.setTimeTakenSeconds(attempt.getTimeTakenSeconds());
+            entry.setSubmittedAt(attempt.getSubmittedAt());
+            entry.setIsCurrentUser(currentUserId != null && currentUserId.equals(attempt.getUser().getId()));
+            entries.add(entry);
+        }
+
+        QuizLeaderboardDto leaderboard = new QuizLeaderboardDto();
+        leaderboard.setQuizId(quiz.getId());
+        leaderboard.setQuizTitle(quiz.getTitle());
+        leaderboard.setTotalParticipants(entries.size());
+        leaderboard.setGeneratedAt(LocalDateTime.now());
+        leaderboard.setEntries(entries);
+        return leaderboard;
     }
 
     @Transactional
@@ -116,7 +286,8 @@ public class QuizService {
         int remainder = total % 20;
         int targetCount = fullCount + (remainder >= 14 ? 1 : 0);
 
-        log.info("Auto-quiz sizing: subject='{}', topic='{}', totalQuestions={}, fullQuizzes={}, remainder={}, targetQuizzes={}",
+        log.info(
+                "Auto-quiz sizing: subject='{}', topic='{}', totalQuestions={}, fullQuizzes={}, remainder={}, targetQuizzes={}",
                 subject, topic, total, fullCount, remainder, targetCount);
         removeExistingQuizzes(subject, topic);
 
@@ -138,7 +309,8 @@ public class QuizService {
                 selected.add(q);
             }
             Collections.shuffle(selected, ThreadLocalRandom.current());
-            log.info("Auto-quiz extra set: subject='{}', topic='{}', setNumber={}, uniqueQuestions={}, totalQuestions={}",
+            log.info(
+                    "Auto-quiz extra set: subject='{}', topic='{}', setNumber={}, uniqueQuestions={}, totalQuestions={}",
                     subject, topic, setNumber, uniqueCount, selected.size());
             result.add(createAutoQuiz(subject, topic, buildAutoTitle(subject, topic, setNumber), selected));
         }
@@ -316,7 +488,7 @@ public class QuizService {
         if (language == null || language.isBlank()) {
             return null;
         }
-        return Language.valueOf(language);
+        return Language.from(language);
     }
 
     private QuestionStatus parseStatus(String status) {
@@ -434,6 +606,66 @@ public class QuizService {
         return copy;
     }
 
+    private UserAccount resolveSubmissionUser(Long requestUserId, String currentUserEmail) {
+        if (currentUserEmail == null || currentUserEmail.isBlank()) {
+            throw new IllegalArgumentException("Login is required to submit the quiz");
+        }
+        return userAccountService.getUserByEmail(currentUserEmail);
+    }
+
+    private Long resolveCurrentUserId(String currentUserEmail) {
+        if (currentUserEmail == null || currentUserEmail.isBlank()) {
+            return null;
+        }
+        return userAccountService.getUserByEmail(currentUserEmail).getId();
+    }
+
+    private Map<Long, Long> normalizeAnswers(List<QuizSubmissionAnswerDto> answers, List<QuizQuestion> quizQuestions) {
+        Map<Long, QuizQuestion> quizQuestionMap = new HashMap<>();
+        for (QuizQuestion quizQuestion : quizQuestions) {
+            quizQuestionMap.put(quizQuestion.getId(), quizQuestion);
+        }
+
+        Map<Long, Long> normalized = new HashMap<>();
+        if (answers == null) {
+            return normalized;
+        }
+
+        for (QuizSubmissionAnswerDto answer : answers) {
+            if (answer == null || answer.getQuizQuestionId() == null) {
+                continue;
+            }
+            if (!quizQuestionMap.containsKey(answer.getQuizQuestionId())) {
+                throw new IllegalArgumentException("Invalid quiz question id: " + answer.getQuizQuestionId());
+            }
+            normalized.put(answer.getQuizQuestionId(), answer.getSelectedChoiceId());
+        }
+        return normalized;
+    }
+
+    private boolean isCorrectChoice(List<QuestionChoice> choices, Long selectedChoiceId) {
+        if (selectedChoiceId == null || choices == null) {
+            return false;
+        }
+        for (QuestionChoice choice : choices) {
+            if (selectedChoiceId.equals(choice.getId())) {
+                return Boolean.TRUE.equals(choice.getIsCorrect());
+            }
+        }
+        return false;
+    }
+
+    private Comparator<QuizAttempt> compareAttempts() {
+        return Comparator.comparingDouble((QuizAttempt attempt) -> attempt.getScore() == null ? 0.0 : attempt.getScore())
+                .reversed()
+                .thenComparing(Comparator.comparingInt(
+                        (QuizAttempt attempt) -> attempt.getCorrectAnswers() == null ? 0 : attempt.getCorrectAnswers())
+                        .reversed())
+                .thenComparingInt(
+                        attempt -> attempt.getTimeTakenSeconds() == null ? Integer.MAX_VALUE : attempt.getTimeTakenSeconds())
+                .thenComparing(attempt -> attempt.getSubmittedAt() == null ? LocalDateTime.MAX : attempt.getSubmittedAt());
+    }
+
     private QuizDto toDto(Quiz quiz) {
         List<QuizQuestion> quizQuestions = quizQuestionRepository.findByQuizIdOrderByOrderIndexAsc(quiz.getId());
         return toDto(quiz, quizQuestions);
@@ -470,6 +702,30 @@ public class QuizService {
             questionDtos.add(qqDto);
         }
         dto.setQuestions(questionDtos);
+        return dto;
+    }
+
+    private LeaderboardUserDto toLeaderboardUserDto(UserAccount user) {
+        LeaderboardUserDto dto = new LeaderboardUserDto();
+        dto.setUserId(user.getId());
+        dto.setUsername(user.getUsername());
+        return dto;
+    }
+
+    private QuizAttemptResultDto toAttemptResultDto(QuizAttempt attempt) {
+        QuizAttemptResultDto dto = new QuizAttemptResultDto();
+        dto.setQuizId(attempt.getQuiz().getId());
+        dto.setAttemptId(attempt.getId());
+        dto.setUserId(attempt.getUser().getId());
+        dto.setUsername(attempt.getUser().getUsername());
+        dto.setScore(attempt.getScore());
+        dto.setTotalMarks(attempt.getTotalMarks());
+        dto.setCorrectAnswers(attempt.getCorrectAnswers());
+        dto.setWrongAnswers(attempt.getWrongAnswers());
+        dto.setAttemptedQuestions(attempt.getAttemptedQuestions());
+        dto.setAccuracy(attempt.getAccuracy());
+        dto.setTimeTakenSeconds(attempt.getTimeTakenSeconds());
+        dto.setSubmittedAt(attempt.getSubmittedAt());
         return dto;
     }
 

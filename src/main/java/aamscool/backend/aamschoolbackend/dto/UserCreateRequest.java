@@ -6,6 +6,7 @@ public class UserCreateRequest {
     private String emailId;
     private String phone;
     private UserRole role;
+    private String subscriptionPlan;
     private String password;
 
     public String getUsername() {
@@ -38,6 +39,14 @@ public class UserCreateRequest {
 
     public void setRole(UserRole role) {
         this.role = role;
+    }
+
+    public String getSubscriptionPlan() {
+        return subscriptionPlan;
+    }
+
+    public void setSubscriptionPlan(String subscriptionPlan) {
+        this.subscriptionPlan = subscriptionPlan;
     }
 
     public String getPassword() {

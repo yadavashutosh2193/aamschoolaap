@@ -9,4 +9,5 @@ import aamscool.backend.aamschoolbackend.model.UserAccount;
 public interface UserAccountRepository extends JpaRepository<UserAccount, Long> {
     Optional<UserAccount> findByUsername(String username);
     Optional<UserAccount> findByEmailId(String emailId);
+    Optional<UserAccount> findByGoogleSubject(String googleSubject);
 }

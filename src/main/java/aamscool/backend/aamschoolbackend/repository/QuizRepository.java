@@ -31,4 +31,11 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
             order by q.createdAt asc
             """)
     List<Quiz> findBySubjectAndTopic(@Param("subject") String subject, @Param("topic") String topic);
+
+    @Query("""
+            select q from Quiz q
+            where q.subject = :subject
+            order by q.createdAt asc
+            """)
+    List<Quiz> findBySubject(@Param("subject") String subject);
 }
