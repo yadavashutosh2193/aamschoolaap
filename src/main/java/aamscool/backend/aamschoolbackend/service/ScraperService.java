@@ -21,7 +21,7 @@ public class ScraperService {
 	@Autowired
     private ScraperConfigService service;
 	@Autowired
-    private GenericScraperService scraperService;
+    private MasterJobAutoScraperService masterJobAutoScraperService;
 
 	private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
 	
@@ -42,7 +42,7 @@ public class ScraperService {
 //			List<ScrapeRequest> scrapeRequest = service.getAll();
 //			scrapeRequest.forEach(request -> scraperService.scrape(request.getUrl(), request.getItemSelector(),
 //					request.getTitleSelector(), request.getLinkSelector(), request.getFetchLimit()));
-			scraperService.scrape();
+			masterJobAutoScraperService.scrapeHomepageAndSave(false, 0, 1);
 		} finally {
 
 	        lock.unlock();

@@ -2,7 +2,9 @@ package aamscool.backend.aamschoolbackend.service;
 
 import java.time.LocalDate;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.slf4j.Logger;
@@ -10,6 +12,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import aamscool.backend.aamschoolbackend.controllers.ScraperScheduler;
 import aamscool.backend.aamschoolbackend.model.HomePageLinksModel;
@@ -26,6 +31,7 @@ public class JobsService {
     TelegramNotifierService telegramNotifierService;
 
     private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public Optional<JobPosts> getPost(long id) {
         return jobDao.findById(id);
@@ -69,14 +75,51 @@ public class JobsService {
     }
 
     public List<HomePageLinksModel> getLatestJob(String label) {
-        List<HomePageLinksModel> links = jobDao.getJobIdandTile(label);
-        links = links.stream()
+        List<HomePageLinksModel> links = jobDao.findByLabelOrderByCreatedAtDesc(label)
+                .stream()
+                .map(job -> new HomePageLinksModel(
+                        job.getTitle(),
+                        job.getJobId(),
+                        job.getCreatedAt(),
+                        extractImportantDates(job.getContent())
+                ))
                 .sorted(Comparator.comparing(
                         HomePageLinksModel::getPostDate,
                         Comparator.nullsLast(Comparator.reverseOrder())
                 ))
                 .toList();
         return links;
+    }
+
+    private Map<String, String> extractImportantDates(String content) {
+        Map<String, String> out = new LinkedHashMap<>();
+        if (content == null || content.isBlank()) {
+            return out;
+        }
+
+        try {
+            JsonNode root = mapper.readTree(content);
+            JsonNode dates = root.path("importantDates");
+            if (dates.isMissingNode() || dates.isNull() || !dates.isObject()) {
+                dates = root.path("important_dates");
+            }
+            if (dates.isObject()) {
+                dates.fields().forEachRemaining(entry -> {
+                    JsonNode value = entry.getValue();
+                    if (value == null || value.isNull()) {
+                        return;
+                    }
+                    String text = value.isValueNode() ? value.asText() : value.toString();
+                    if (text != null && !text.isBlank()) {
+                        out.put(entry.getKey(), text);
+                    }
+                });
+            }
+        } catch (Exception ignored) {
+            // Keep latest-jobs API resilient even if one row has malformed content JSON.
+        }
+
+        return out;
     }
 
     @Transactional

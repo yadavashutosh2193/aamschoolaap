@@ -2,6 +2,7 @@ package aamscool.backend.aamschoolbackend.controllers;
 
 import java.util.List;
 
+import aamscool.backend.aamschoolbackend.model.ScrapeCache;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,7 +21,6 @@ import aamscool.backend.aamschoolbackend.service.ScraperConfigService;
 import aamscool.backend.aamschoolbackend.service.ScraperService;
 @RestController
 @RequestMapping("/api/scraperconfig")
-@CrossOrigin("*")
 public class ScraperConfigController {
 
     @Autowired
@@ -114,7 +114,7 @@ public class ScraperConfigController {
     
     @PostMapping("/runnow")
     public ResponseEntity<String> runNow() {
-
+        ScrapeCache.processedLinks.invalidateAll();
         scraperService.runScraperAsync();
 
         return ResponseEntity.ok("Scraper started");

@@ -17,8 +17,7 @@ public class CorsConfig {
 
         config.setAllowCredentials(true);
         config.setAllowedOrigins(Arrays.asList(
-                "https://www.aamschool.in",
-                "http://localhost:3000"
+                "https://www.aamschool.in"
         ));
         config.setAllowedHeaders(Arrays.asList("*"));
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));

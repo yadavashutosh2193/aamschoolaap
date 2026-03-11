@@ -83,6 +83,97 @@ public class OpenAIService {
         }
     }
 
+    /**
+     * Refine master job JSON content while preserving source-critical sections.
+     */
+    public String refineMasterJobContent(String rawMasterJson) throws IOException {
+        String prompt = buildMasterRefinePrompt(rawMasterJson);
+        String requestBody = buildRequestBody(prompt);
+
+        Request request = new Request.Builder()
+                .url(OPENAI_URL)
+                .post(RequestBody.create(requestBody, JSON))
+                .addHeader("Authorization", "Bearer " + apiKey)
+                .addHeader("Content-Type", "application/json")
+                .build();
+
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new RuntimeException(
+                        "OpenAI API Error: " + response.code() +
+                        " | " + response.message()
+                );
+            }
+            String raw = response.body().string();
+            try {
+                return extractCleanJson(raw);
+            } catch (Exception ex) {
+                return rawMasterJson;
+            }
+        }
+    }
+
+    /**
+     * Low-token text cleanup for narrative fields only.
+     */
+    public String rewriteNarrativeFields(String narrativeJson) throws IOException {
+        String prompt = buildNarrativeRewritePrompt(narrativeJson);
+        String requestBody = buildRequestBody(prompt);
+
+        Request request = new Request.Builder()
+                .url(OPENAI_URL)
+                .post(RequestBody.create(requestBody, JSON))
+                .addHeader("Authorization", "Bearer " + apiKey)
+                .addHeader("Content-Type", "application/json")
+                .build();
+
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new RuntimeException(
+                        "OpenAI API Error: " + response.code() +
+                                " | " + response.message()
+                );
+            }
+            String raw = response.body().string();
+            try {
+                return extractCleanJson(raw);
+            } catch (Exception ex) {
+                return narrativeJson;
+            }
+        }
+    }
+
+    /**
+     * Direct URL -> master DTO JSON via OpenAI prompt only (no local scraper parsing).
+     */
+    public String generateMasterJsonFromUrlDirect(String sourceUrl) throws IOException {
+        String prompt = buildDirectUrlMasterPrompt(sourceUrl);
+        String requestBody = buildRequestBody(prompt);
+
+        Request request = new Request.Builder()
+                .url(OPENAI_URL)
+                .post(RequestBody.create(requestBody, JSON))
+                .addHeader("Authorization", "Bearer " + apiKey)
+                .addHeader("Content-Type", "application/json")
+                .build();
+
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new RuntimeException(
+                        "OpenAI API Error: " + response.code() +
+                                " | " + response.message()
+                );
+            }
+
+            String raw = response.body().string();
+            try {
+                return extractCleanJson(raw);
+            } catch (Exception ex) {
+                return raw;
+            }
+        }
+    }
+
 
     // ---------------- PRIVATE HELPERS ----------------
 
@@ -111,6 +202,138 @@ Now:
 9. use key title for title(always modify from input), advertisement_no for advertisement and also add key post_name, eligibility(includes age limit and educational eligibiity) rest all keys word should we spaces seperated
 Return final valid JSON only.
  """;
+    }
+
+    private String buildMasterRefinePrompt(String rawJson) {
+        return """
+You are refining scraped job JSON for publishing.
+
+Input JSON:
+""" + rawJson + """
+
+Rules:
+1) Return valid JSON only.
+2) Keep these keys exactly unchanged from input:
+   - advertisement_no
+   - important_dates
+   - application_fee
+   - official_links
+   - source
+3) Rewrite and sanitize content-heavy fields to be concise and original:
+   - title
+   - short_description
+   - post_name
+   - conducting_body
+   - eligibility_criteria.qualification
+   - application_process
+   - selection_process
+   - important_notes
+   - syllabus_overview
+4) Do not invent factual values. If uncertain, keep original.
+5) Remove "click here", "question/answer", and boilerplate phrasing from rewritten fields.
+6) Keep JSON structure and key names same as input.
+7) For non-locked keys, you may normalize/clean structure, but do not alter factual numbers/dates/quantities present in input.
+8) exam_scheme may contain structured objects (nested JSON), not only strings.
+9) If physical standards are available in exam_scheme.physical_standard_test text or other_tables physical table, convert to structured object format:
+   {
+     "male": { "general_bc": {...}, "other": {...} },
+     "female": { "general_bc": {...}, "other": {...} }
+   }
+   Keep values factual from input only (height/chest/weight), set missing ones to null.
+10) If you cannot confidently structure physical_standard_test, keep original value unchanged.
+""";
+    }
+
+    private String buildDirectUrlMasterPrompt(String sourceUrl) {
+        return """
+You are a job-data extraction assistant.
+
+Task:
+1) Read the job page at this URL: %s
+2) Return exactly one valid JSON object in this master DTO shape.
+3) If any field is unavailable, set it to null (or [] / {} for list/map fields).
+4) Do not include markdown, comments, or extra text.
+5) Prefer concise, original wording for title/description/notes (avoid verbatim copying long source text).
+
+Output schema (snake_case):
+{
+  "title": "",
+  "short_description": "",
+  "advertisement_no": "",
+  "post_name": "",
+  "conducting_body": "",
+  "important_dates": {
+    "notification_date": "",
+    "online_apply_start_date": "",
+    "online_apply_last_date": "",
+    "last_date_for_fee_payment": "",
+    "correction_window": "",
+    "exam_date": "",
+    "admit_card": "",
+    "result_date": ""
+  },
+  "application_fee": {
+    "general_obc": "",
+    "sc_st_ebc_female_transgender": "",
+    "refund_general_obc_after_cbt": "",
+    "refund_sc_st_ebc_female_transgender_after_cbt": "",
+    "payment_mode": []
+  },
+  "eligibility_criteria": {
+    "minimum_age": "",
+    "maximum_age": "",
+    "age_as_on": "",
+    "qualification": ""
+  },
+  "vacancy_details": {
+    "total_vacancy": "",
+    "post_wise": {},
+    "category_wise": {}
+  },
+  "pay_scale": "",
+  "application_process": [],
+  "exam_scheme": {},
+  "selection_process": [],
+  "important_notes": [],
+  "official_links": {},
+  "source": "",
+  "syllabus_overview": []
+}
+
+Important:
+- Keep `source` equal to the given URL.
+- Keep `important_dates` and `official_links` as factual extraction only.
+- Do not fabricate values.
+""".formatted(sourceUrl);
+    }
+
+    private String buildNarrativeRewritePrompt(String narrativeJson) {
+        return """
+You are cleaning and rewriting text fields of a scraped job JSON.
+
+Input JSON (only narrative fields):
+""" + narrativeJson + """
+
+Rules:
+1) Return valid JSON only.
+2) Keep the same keys exactly:
+   - title
+   - short_description
+   - post_name
+   - application_process
+   - important_notes
+   - syllabus_overview
+   - exam_scheme
+   - context_source
+   - context_conducting_body
+3) Rewrite only text-heavy fields to concise, original wording:
+   title, short_description, post_name, application_process, important_notes, syllabus_overview, exam_scheme values.
+4) Do not fabricate facts, dates, links, fee values, or eligibility values.
+5) Remove boilerplate phrases like "click here", "apply online link", question-answer style text, and repetitive disclaimers.
+6) Keep arrays as arrays and exam_scheme keys unchanged.
+7) exam_scheme values can be nested objects when structure is clearly available (e.g., physical standards table).
+8) Keep context_source and context_conducting_body unchanged.
+""";
     }
 
 

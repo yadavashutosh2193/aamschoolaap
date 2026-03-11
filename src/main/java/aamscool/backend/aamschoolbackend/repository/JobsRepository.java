@@ -20,6 +20,8 @@ public interface JobsRepository extends JpaRepository<JobPosts, Long>{
 	@Query("SELECT new aamscool.backend.aamschoolbackend.model.HomePageLinksModel(j.title,j.jobId,j.createdAt) FROM JobPosts j WHERE j.label =:label")
 	List<HomePageLinksModel> getJobIdandTile(@Param("label") String label);
 
+	List<JobPosts> findByLabelOrderByCreatedAtDesc(String label);
+
 	Optional<JobPosts> findByLabelAndAdvertisementNo(String label, String advertisementNo);
 
 	@Query("SELECT new aamscool.backend.aamschoolbackend.model.HomePageLinksModel(j.title,j.jobId,j.createdAt) FROM JobPosts j ORDER BY j.jobId DESC")

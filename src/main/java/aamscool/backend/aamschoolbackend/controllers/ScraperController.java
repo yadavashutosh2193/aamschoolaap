@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.RestController;
 import aamscool.backend.aamschoolbackend.model.ScrapeRequest;
 import aamscool.backend.aamschoolbackend.service.GenericScraperService;
 import aamscool.backend.aamschoolbackend.service.OpenAIService;
-import aamscool.backend.aamschoolbackend.util.SarkariResultDsssbNormalizer;
 
 @RestController
 @RequestMapping("/api/scrape")
@@ -23,9 +22,6 @@ public class ScraperController {
 
     @Autowired
     private GenericScraperService scraperService;
-    
-    @Autowired
-    private SarkariResultDsssbNormalizer sarkariResultDsssbNormalizer;
     
     @Autowired
     private OpenAIService openAiService;
@@ -46,15 +42,7 @@ public class ScraperController {
     
     @GetMapping
     public Map<String, Object> scrape(@RequestParam String url) throws Exception {
-
-    	Map<String, Object> resp = scraperService.scrape(url);
-    	//Map<String, Object> resp1 = jobJsonNormalizerService.normalize(resp);
-    	String aiJson = openAiService.processJobMap(resp);
-    	System.out.println("++++++++++++++++++++++++++++++++++++++++++++++");
-    	System.out.println(openAiService.extractCleanJson(aiJson));
-    	System.out.println("++++++++++++++++++++++++++++++++++++++++++++++");
-    	Map<String, Object> resp2 = sarkariResultDsssbNormalizer.normalize(resp);
-        return resp2;
+        return scraperService.scrape(url);
     }
     
     @PutMapping

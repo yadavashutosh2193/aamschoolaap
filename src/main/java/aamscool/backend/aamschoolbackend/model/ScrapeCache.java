@@ -15,7 +15,7 @@ import aamscool.backend.aamschoolbackend.controllers.ScraperScheduler;
 public class ScrapeCache {
 
 	private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
-    Cache<String, Boolean> processedLinks = Caffeine.newBuilder()
+    public static Cache<String, Boolean> processedLinks = Caffeine.newBuilder()
             .maximumSize(100)
             .build();
    public static Cache<String, List<HomePageLinksModel>> dataCache = Caffeine.newBuilder()

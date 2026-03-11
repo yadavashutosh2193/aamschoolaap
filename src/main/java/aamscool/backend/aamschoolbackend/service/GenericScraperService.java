@@ -18,13 +18,16 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import aamscool.backend.aamschoolbackend.controllers.ScraperScheduler;
+import aamscool.backend.aamschoolbackend.dto.MasterJobResponseDto;
 import aamscool.backend.aamschoolbackend.model.Category;
-import aamscool.backend.aamschoolbackend.model.Notification;
+import aamscool.backend.aamschoolbackend.model.JobPosts;
 import aamscool.backend.aamschoolbackend.model.Post;
 import aamscool.backend.aamschoolbackend.model.ScrapeCache;
 import aamscool.backend.aamschoolbackend.util.HomepageScraperService;
-import aamscool.backend.aamschoolbackend.util.OpenAIBatchProcessor;
+import aamscool.backend.aamschoolbackend.util.LabelUtil;
 
 @Service
 public class GenericScraperService {
@@ -33,7 +36,13 @@ public class GenericScraperService {
     private ScrapeCache cache;
 
     @Autowired
-    OpenAIBatchProcessor openAiBatch;
+    private MasterJobScraperService masterJobScraperService;
+
+    @Autowired
+    private JobsService jobsService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
 
@@ -63,14 +72,13 @@ public class GenericScraperService {
 
             Document doc = Jsoup.connect(url).timeout(10000).get();
             Elements items = doc.select(itemSelector);
+            String label = LabelUtil.extractLabel(url);
 
             int count = 0;
 
             for (Element item : items) {
 
-                if (count >= limit) break;
-
-                String title = item.select(titleSelector).text().trim();
+                if (limit > 0 && count >= limit) break;
 
                 Element linkEl = item.selectFirst(linkSelector);
                 String link = "";
@@ -79,16 +87,16 @@ public class GenericScraperService {
                     link = linkEl.absUrl("href").trim();
                 }
 
-                Notification n = new Notification();
-                n.setTitle(title);
-                n.setLink(link);
-                n.setScrapedDate(LocalDate.now());
+                if (link.isBlank()) {
+                    continue;
+                }
 
                 if (!cache.isProcessed(link)) {
-
-                    Map<String, Object> result = scrape(link);
-                    response.add(result);
-                    cache.markProcessed(link);
+                    Map<String, Object> result = scrapeAndPersist(link, label);
+                    if (!result.isEmpty()) {
+                        response.add(result);
+                        cache.markProcessed(link);
+                    }
                 }
 
                 count++;
@@ -96,14 +104,6 @@ public class GenericScraperService {
 
         } catch (Exception e) {
             log.error("Error in list scrape", e);
-        }
-
-        try {
-            if (!response.isEmpty()) {
-                openAiBatch.processAndUpload(response, url);
-            }
-        } catch (Exception e) {
-            log.error("Error in processAndUpload", e);
         }
 
         return response;
@@ -125,25 +125,21 @@ public class GenericScraperService {
         System.out.println("acrapper started ++++=1111");
         for (Category category : scrapedData) {
         	System.out.println("inside loop acrapper started ++++=");
-            List<Map<String, Object>> response = new ArrayList<>();
+            String label = LabelUtil.normalizeCategoryLabel(category.getName());
 
             for (Post post : category.getPosts()) {
+                if (post.getUrl() == null || post.getUrl().isBlank()) {
+                    continue;
+                }
 
                 if (!cache.isProcessed(post.getUrl())) {
 
-                    Map<String, Object> result = scrape(post.getUrl());
+                    Map<String, Object> result = scrapeAndPersist(post.getUrl(), label);
                     System.out.println(result);
-                    response.add(result);
-                    cache.markProcessed(post.getUrl());
+                    if (!result.isEmpty()) {
+                        cache.markProcessed(post.getUrl());
+                    }
                 }
-            }
-
-            try {
-                if (!response.isEmpty()) {
-                    openAiBatch.processAndUpload(response, category.getCategoryUrl());
-                }
-            } catch (Exception e) {
-                log.error("Error in batch upload", e);
             }
         }
     }
@@ -153,31 +149,49 @@ public class GenericScraperService {
        ============================================================ */
 
     public Map<String, Object> scrape(String url) {
-
-        Map<String, Object> result = new LinkedHashMap<>();
-
         try {
-
-            Document doc = Jsoup.connect(url)
-                    .userAgent("Mozilla/5.0")
-                    .timeout(20000)
-                    .get();
-
-            Element main = doc.selectFirst("#post, .entry-content, article, .container");
-            if (main == null) main = doc.body();
-
-            result.put("pageTitle", doc.title());
-            result.put("url", url);
-            result.put("scrapedDate", LocalDate.now().toString());
-
-            result.put("content", parse(main));
+            MasterJobResponseDto dto = masterJobScraperService.scrapeToMasterJson(url, true, false);
+            return objectMapper.convertValue(dto, Map.class);
 
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Single page scrape failed for {}", url, e);
+            Map<String, Object> result = new LinkedHashMap<>();
             result.put("error", "Scraping failed");
+            return result;
+        }
+    }
+
+    private Map<String, Object> scrapeAndPersist(String link, String label) {
+        try {
+            MasterJobResponseDto dto = masterJobScraperService.scrapeToMasterJson(link, true, false);
+            String normalizedLabel = LabelUtil.normalizeCategoryLabel(label);
+            saveMasterDto(dto, normalizedLabel);
+            return objectMapper.convertValue(dto, Map.class);
+        } catch (Exception ex) {
+            log.error("Failed to scrape/persist {}", link, ex);
+            return new LinkedHashMap<>();
+        }
+    }
+
+    private void saveMasterDto(MasterJobResponseDto dto, String label) throws Exception {
+        if (dto == null) {
+            return;
         }
 
-        return result;
+        String title = dto.getTitle() != null && !dto.getTitle().isBlank() ? dto.getTitle() : "Untitled Job";
+        String adv = dto.getAdvertisementNo();
+        String safeLabel = (label == null || label.isBlank()) ? "job" : label;
+
+        JobPosts job = new JobPosts();
+        job.setLabel(safeLabel);
+        job.setTitle(title);
+        job.setAdvertisementNo(adv);
+        job.setCreatedAt(LocalDate.now());
+        job.setContent(objectMapper.writeValueAsString(dto));
+        job.setApproved(false);
+
+        jobsService.savePost(job);
+        ScrapeCache.dataCache.invalidate(safeLabel);
     }
 
     /* ============================================================

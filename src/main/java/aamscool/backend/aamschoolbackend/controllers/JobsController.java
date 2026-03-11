@@ -50,6 +50,11 @@ public class JobsController {
 		return jobs;
 	}
 
+	@GetMapping("/latestjobs-with-dates/{label}")
+	public List<HomePageLinksModel> getLatestJobWithDates(@PathVariable("label") String label) {
+		return getLatestJob(label);
+	}
+
 	@GetMapping("/jobbyid/{id}")
 	public Optional<JobPosts> getPost(@PathVariable("id") long id) {
 		JobPosts cached = ScrapeCache.jsondata.getIfPresent(id);

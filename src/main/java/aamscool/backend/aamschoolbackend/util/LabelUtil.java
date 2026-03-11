@@ -14,6 +14,10 @@ public class LabelUtil {
     public static String extractLabel(String url)
             throws Exception {
 
+          if (url == null || url.isBlank()) {
+              return "job";
+          }
+
     	  url = url.toLowerCase();
 
           // Apply rules
@@ -40,5 +44,35 @@ public class LabelUtil {
           // Default
           return "job";
       }
+
+    public static String normalizeCategoryLabel(String categoryName) {
+        if (categoryName == null || categoryName.isBlank()) {
+            return "job";
+        }
+
+        String normalized = categoryName.toLowerCase().trim();
+        normalized = normalized.replaceAll("[^a-z\\s]", " ").replaceAll("\\s+", " ").trim();
+
+        if (normalized.contains("latest") && normalized.contains("job")) {
+            return "Latest jobs";
+        }
+        if (normalized.contains("admit")) {
+            return "admit cards";
+        }
+        if (normalized.contains("result")) {
+            return "Latest results";
+        }
+        if (normalized.contains("answer")) {
+            return "Answer Keys";
+        }
+        if (normalized.contains("admission")) {
+            return "admission";
+        }
+        if (normalized.contains("document")) {
+            return "documents";
+        }
+
+        return categoryName.trim();
+    }
 
 }

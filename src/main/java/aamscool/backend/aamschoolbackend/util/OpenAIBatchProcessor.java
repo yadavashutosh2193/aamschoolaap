@@ -34,6 +34,11 @@ public class OpenAIBatchProcessor {
 
     public void processAndUpload(List<Map<String, Object>> jobs,String baseLink)
             throws Exception {
+        processAndUpload(jobs, baseLink, null);
+    }
+
+    public void processAndUpload(List<Map<String, Object>> jobs, String baseLink, String categoryLabelHint)
+            throws Exception {
 
         try { 
 
@@ -59,7 +64,9 @@ public class OpenAIBatchProcessor {
         		aiJson = openAiService.extractCleanJson(aiJson);
         		log.info(aiJson);
                   
-        	    String label = LabelUtil.extractLabel(baseLink);
+                String label = (categoryLabelHint != null && !categoryLabelHint.isBlank())
+                        ? LabelUtil.normalizeCategoryLabel(categoryLabelHint)
+                        : LabelUtil.extractLabel(baseLink);
         	    log.info("label to save into db "+label);
 
         	    savePostData(aiJson, label);
