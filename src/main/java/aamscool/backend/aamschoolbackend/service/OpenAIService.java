@@ -2,6 +2,7 @@ package aamscool.backend.aamschoolbackend.service;
 
 import java.io.IOException;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -32,6 +33,18 @@ public class OpenAIService {
 
     private final OkHttpClient client;
     private final ObjectMapper objectMapper;
+    private static final List<String> DEFAULT_CURRENT_AFFAIRS_TOPICS = List.of(
+            "Polity & Governance",
+            "Economy & Banking",
+            "Science & Technology",
+            "Environment & Ecology",
+            "International Relations",
+            "National Schemes & Welfare",
+            "Defence & Security",
+            "Awards & Honours",
+            "Sports",
+            "Reports/Indices/Summits"
+    );
 
 
     public OpenAIService() {
@@ -396,7 +409,7 @@ Rules:
     }
 
     public String generateCurrentAffairsQuizJson(LocalDate quizDate) throws Exception {
-        String prompt = buildCurrentAffairsPrompt(quizDate, 20, List.of());
+        String prompt = buildCurrentAffairsPrompt(quizDate, 20, List.of(), DEFAULT_CURRENT_AFFAIRS_TOPICS);
         String requestBody = buildRequestBody(prompt);
 
         Request request = new Request.Builder()
@@ -421,7 +434,12 @@ Rules:
     }
 
     public String generateCurrentAffairsQuizJson(LocalDate quizDate, int count, List<String> avoidQuestions) throws Exception {
-        String prompt = buildCurrentAffairsPrompt(quizDate, count, avoidQuestions);
+        return generateCurrentAffairsQuizJson(quizDate, count, avoidQuestions, DEFAULT_CURRENT_AFFAIRS_TOPICS);
+    }
+
+    public String generateCurrentAffairsQuizJson(LocalDate quizDate, int count, List<String> avoidQuestions,
+            List<String> topicAreas) throws Exception {
+        String prompt = buildCurrentAffairsPrompt(quizDate, count, avoidQuestions, topicAreas);
         String requestBody = buildRequestBody(prompt);
 
         Request request = new Request.Builder()
@@ -446,7 +464,12 @@ Rules:
     }
 
     public String generateCurrentAffairsQuizQuestions(LocalDate quizDate, int count, List<String> avoidQuestions) throws Exception {
-        String prompt = buildCurrentAffairsQuestionsOnlyPrompt(quizDate, count, avoidQuestions);
+        return generateCurrentAffairsQuizQuestions(quizDate, count, avoidQuestions, DEFAULT_CURRENT_AFFAIRS_TOPICS);
+    }
+
+    public String generateCurrentAffairsQuizQuestions(LocalDate quizDate, int count, List<String> avoidQuestions,
+            List<String> topicAreas) throws Exception {
+        String prompt = buildCurrentAffairsQuestionsOnlyPrompt(quizDate, count, avoidQuestions, topicAreas);
         String requestBody = buildRequestBody(prompt);
 
         Request request = new Request.Builder()
@@ -470,8 +493,11 @@ Rules:
         }
     }
 
-    private String buildCurrentAffairsPrompt(LocalDate quizDate, int count, List<String> avoidQuestions) {
+    private String buildCurrentAffairsPrompt(LocalDate quizDate, int count, List<String> avoidQuestions,
+            List<String> topicAreas) {
         String avoidBlock = buildAvoidQuestionsBlock(avoidQuestions);
+        List<String> effectiveTopics = normalizeTopicAreas(topicAreas);
+        String topicAreasBlock = buildTopicAreasBlock(effectiveTopics);
         int currentYear = quizDate.getYear();
         int previousYear = currentYear - 1;
         return """
@@ -491,18 +517,25 @@ Rules:
    - options (array of exactly 4 string options)
    - correct_option (must exactly match one option text)
    - difficulty_level (Easy/Medium/Hard)
+   - topic_area (must exactly match one listed topic area)
    - exam_name (example: UPSC, SSC, Banking, Railways, State PSC)
    - details_description (2-4 lines explanation)
 4) Questions must be based on India + global current affairs from %d and %d only, and should be useful for competitive exams.
 5) Keep language clear and exam-ready.
 6) Ensure no duplicate questions and no empty fields.
-7) Cover a balanced mix of topics: polity/governance, economy, science & tech, environment, international relations, and national schemes.
+7) Use only the following topic areas:
 %s
-""".formatted(quizDate, count, count, currentYear, previousYear, avoidBlock);
+8) Ensure the quiz includes at least one question from each listed topic area.
+%s
+""".formatted(quizDate, count, count, currentYear, previousYear, topicAreasBlock, avoidBlock);
     }
 
-    private String buildCurrentAffairsQuestionsOnlyPrompt(LocalDate quizDate, int count, List<String> avoidQuestions) {
+    private String buildCurrentAffairsQuestionsOnlyPrompt(LocalDate quizDate, int count, List<String> avoidQuestions,
+            List<String> topicAreas) {
         String avoidBlock = buildAvoidQuestionsBlock(avoidQuestions);
+        List<String> effectiveTopics = normalizeTopicAreas(topicAreas);
+        String topicAreasBlock = buildTopicAreasBlock(effectiveTopics);
+        String topicAreasInline = String.join(", ", effectiveTopics);
         int currentYear = quizDate.getYear();
         int previousYear = currentYear - 1;
         return """
@@ -516,13 +549,18 @@ Rules:
    - options (array of exactly 4 string options)
    - correct_option (must exactly match one option text)
    - difficulty_level (Easy/Medium/Hard)
+   - topic_area (must exactly match one listed topic area)
    - exam_name (example: UPSC, SSC, Banking, Railways, State PSC)
    - details_description (2-4 lines explanation)
 3) Questions must be based on India + global current affairs from %d and %d only, and should be useful for competitive exams.
-4) Keep language clear and exam-ready.
-5) Ensure no duplicate questions and no empty fields.
+4) Use only the following topic areas:
 %s
-""".formatted(count, quizDate, currentYear, previousYear, avoidBlock);
+5) Prioritize distinct coverage across topic areas before repeating.
+6) Give highest priority to these topic areas for this call: %s
+7) Keep language clear and exam-ready.
+8) Ensure no duplicate questions and no empty fields.
+%s
+""".formatted(count, quizDate, currentYear, previousYear, topicAreasBlock, topicAreasInline, avoidBlock);
     }
 
     private String buildAvoidQuestionsBlock(List<String> avoidQuestions) {
@@ -535,6 +573,34 @@ Rules:
         int limit = Math.min(avoidQuestions.size(), 120);
         for (int i = 0; i < limit; i++) {
             sb.append("- ").append(avoidQuestions.get(i)).append("\n");
+        }
+        return sb.toString();
+    }
+
+    private List<String> normalizeTopicAreas(List<String> topicAreas) {
+        if (topicAreas == null || topicAreas.isEmpty()) {
+            return DEFAULT_CURRENT_AFFAIRS_TOPICS;
+        }
+        List<String> normalized = new ArrayList<>();
+        for (String topic : topicAreas) {
+            if (topic == null || topic.isBlank()) {
+                continue;
+            }
+            String trimmed = topic.trim();
+            if (!normalized.contains(trimmed)) {
+                normalized.add(trimmed);
+            }
+        }
+        if (normalized.isEmpty()) {
+            return DEFAULT_CURRENT_AFFAIRS_TOPICS;
+        }
+        return normalized;
+    }
+
+    private String buildTopicAreasBlock(List<String> topicAreas) {
+        StringBuilder sb = new StringBuilder();
+        for (String topic : topicAreas) {
+            sb.append("- ").append(topic).append("\n");
         }
         return sb.toString();
     }

@@ -6,6 +6,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -27,10 +28,12 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import aamscool.backend.aamschoolbackend.dto.CurrentAffairsQuizAttemptStatsDto;
 import aamscool.backend.aamschoolbackend.dto.CurrentAffairsQuizSubmissionAnswerDto;
 import aamscool.backend.aamschoolbackend.dto.CurrentAffairsQuizSubmitRequest;
+import aamscool.backend.aamschoolbackend.model.CurrentAffairsQuizAttemptAnswer;
 import aamscool.backend.aamschoolbackend.model.CurrentAffairsQuizAttempt;
 import aamscool.backend.aamschoolbackend.model.CurrentAffairsQuiz;
 import aamscool.backend.aamschoolbackend.model.QuizListItem;
 import aamscool.backend.aamschoolbackend.model.UserAccount;
+import aamscool.backend.aamschoolbackend.repository.CurrentAffairsQuizAttemptAnswerRepository;
 import aamscool.backend.aamschoolbackend.repository.CurrentAffairsQuizAttemptRepository;
 import aamscool.backend.aamschoolbackend.repository.CurrentAffairsQuizRepository;
 import jakarta.transaction.Transactional;
@@ -43,14 +46,29 @@ public class CurrentAffairsQuizService {
     private static final int TARGET_QUESTION_COUNT = 15;
     private static final int CANDIDATE_POOL_SIZE = 30;
     private static final int RECENT_QUIZ_LOOKBACK = 5;
-    private static final int MAX_TOPUP_ATTEMPTS = 1;
+    private static final int MAX_TOPUP_ATTEMPTS = 3;
     private static final int MAX_AVOID_PROMPT_QUESTIONS = 60;
+    private static final List<String> REQUIRED_TOPIC_AREAS = List.of(
+            "Polity & Governance",
+            "Economy & Banking",
+            "Science & Technology",
+            "Environment & Ecology",
+            "International Relations",
+            "National Schemes & Welfare",
+            "Defence & Security",
+            "Awards & Honours",
+            "Sports",
+            "Reports/Indices/Summits"
+    );
 
     @Autowired
     private CurrentAffairsQuizRepository quizRepository;
 
     @Autowired
     private CurrentAffairsQuizAttemptRepository currentAffairsQuizAttemptRepository;
+
+    @Autowired
+    private CurrentAffairsQuizAttemptAnswerRepository currentAffairsQuizAttemptAnswerRepository;
 
     @Autowired
     private OpenAIService openAIService;
@@ -119,7 +137,8 @@ public class CurrentAffairsQuizService {
         String cleanJson = openAIService.generateCurrentAffairsQuizJson(
                 today,
                 CANDIDATE_POOL_SIZE,
-                limitPromptQuestions(avoidQuestionPrompts)
+                limitPromptQuestions(avoidQuestionPrompts),
+                REQUIRED_TOPIC_AREAS
         );
         ObjectNode quizRoot = (ObjectNode) objectMapper.readTree(cleanJson);
         String title = quizRoot.path("title").asText("Daily Current Affairs Quiz - " + today);
@@ -134,13 +153,20 @@ public class CurrentAffairsQuizService {
             }
         }
 
+        Set<String> missingTopicAreas = findMissingTopicAreas(uniqueQuestions, REQUIRED_TOPIC_AREAS);
         int attempts = 0;
-        while (uniqueQuestions.size() < TARGET_QUESTION_COUNT && attempts < MAX_TOPUP_ATTEMPTS) {
+        while ((uniqueQuestions.size() < TARGET_QUESTION_COUNT || !missingTopicAreas.isEmpty())
+                && attempts < MAX_TOPUP_ATTEMPTS) {
             int remaining = TARGET_QUESTION_COUNT - uniqueQuestions.size();
+            int requestCount = Math.max(Math.max(remaining, missingTopicAreas.size()), 1);
+            List<String> requestedTopics = missingTopicAreas.isEmpty()
+                    ? REQUIRED_TOPIC_AREAS
+                    : new ArrayList<>(missingTopicAreas);
             String extraJson = openAIService.generateCurrentAffairsQuizQuestions(
                     today,
-                    remaining,
-                    limitPromptQuestions(avoidQuestionPrompts)
+                    requestCount,
+                    limitPromptQuestions(avoidQuestionPrompts),
+                    requestedTopics
             );
             JsonNode extraRoot = objectMapper.readTree(extraJson);
             JsonNode extraQuestions = extraRoot.isArray() ? extraRoot : extraRoot.path("questions");
@@ -153,21 +179,28 @@ public class CurrentAffairsQuizService {
                     avoidQuestionPrompts.add(questionText);
                 }
             }
+            missingTopicAreas = findMissingTopicAreas(uniqueQuestions, REQUIRED_TOPIC_AREAS);
             attempts++;
         }
 
-        if (uniqueQuestions.size() < TARGET_QUESTION_COUNT) {
+        if (uniqueQuestions.size() < TARGET_QUESTION_COUNT || !missingTopicAreas.isEmpty()) {
             int remaining = TARGET_QUESTION_COUNT - uniqueQuestions.size();
+            int requestCount = Math.max(Math.max(remaining, missingTopicAreas.size()), 1);
+            List<String> requestedTopics = missingTopicAreas.isEmpty()
+                    ? REQUIRED_TOPIC_AREAS
+                    : new ArrayList<>(missingTopicAreas);
             String extraJson = openAIService.generateCurrentAffairsQuizQuestions(
                     today,
-                    remaining,
-                    limitPromptQuestions(new ArrayList<>(seenNormalized))
+                    requestCount,
+                    limitPromptQuestions(new ArrayList<>(seenNormalized)),
+                    requestedTopics
             );
             JsonNode extraRoot = objectMapper.readTree(extraJson);
             JsonNode extraQuestions = extraRoot.isArray() ? extraRoot : extraRoot.path("questions");
             List<ObjectNode> extraUnique = filterUniqueQuestions(extraQuestions, seenNormalized);
+            boolean allowOverTarget = !missingTopicAreas.isEmpty();
             for (ObjectNode q : extraUnique) {
-                if (uniqueQuestions.size() >= TARGET_QUESTION_COUNT) {
+                if (!allowOverTarget && uniqueQuestions.size() >= TARGET_QUESTION_COUNT) {
                     break;
                 }
                 uniqueQuestions.add(q);
@@ -176,15 +209,25 @@ public class CurrentAffairsQuizService {
                     seenNormalized.add(normalizeQuestion(questionText));
                 }
             }
+            missingTopicAreas = findMissingTopicAreas(uniqueQuestions, REQUIRED_TOPIC_AREAS);
         }
 
-        int finalCount = Math.min(TARGET_QUESTION_COUNT, uniqueQuestions.size());
+        List<ObjectNode> selectedQuestions = selectFinalQuestionsWithTopicCoverage(
+                uniqueQuestions,
+                TARGET_QUESTION_COUNT,
+                REQUIRED_TOPIC_AREAS
+        );
+        int finalCount = Math.min(TARGET_QUESTION_COUNT, selectedQuestions.size());
         if (finalCount < TARGET_QUESTION_COUNT) {
             log.warn("Only {} unique questions generated. Proceeding with partial quiz.", finalCount);
         }
+        Set<String> missingAfterSelection = findMissingTopicAreas(selectedQuestions, REQUIRED_TOPIC_AREAS);
+        if (!missingAfterSelection.isEmpty()) {
+            log.warn("Quiz topic coverage incomplete for {}. Missing topics: {}", today, missingAfterSelection);
+        }
         ArrayNode finalQuestions = objectMapper.createArrayNode();
         for (int i = 0; i < finalCount; i++) {
-            ObjectNode q = uniqueQuestions.get(i);
+            ObjectNode q = selectedQuestions.get(i);
             finalQuestions.add(q);
         }
         quizRoot.set("questions", finalQuestions);
@@ -235,6 +278,7 @@ public class CurrentAffairsQuizService {
         int attemptedQuestions = 0;
         int correctAnswers = 0;
         int wrongAnswers = 0;
+        List<CurrentAffairsQuizAttemptAnswer> attemptAnswers = new ArrayList<>();
 
         for (int i = 0; i < questionsNode.size(); i++) {
             String selectedOption = answerMap.get(i);
@@ -245,11 +289,21 @@ public class CurrentAffairsQuizService {
             attemptedQuestions++;
             JsonNode questionNode = questionsNode.get(i);
             String correctOption = questionNode.path("correct_option").asText("");
-            if (selectedOption.trim().equals(correctOption.trim())) {
+            String selectedOptionTrimmed = selectedOption.trim();
+            boolean isCorrect = selectedOptionTrimmed.equals(correctOption.trim());
+            if (isCorrect) {
                 correctAnswers++;
             } else {
                 wrongAnswers++;
             }
+
+            CurrentAffairsQuizAttemptAnswer answer = new CurrentAffairsQuizAttemptAnswer();
+            answer.setQuestionIndex(i);
+            answer.setQuestionText(questionNode.path("question").asText(""));
+            answer.setSelectedOption(selectedOptionTrimmed);
+            answer.setCorrectOption(correctOption);
+            answer.setIsCorrect(isCorrect);
+            attemptAnswers.add(answer);
         }
 
         double score = correctAnswers;
@@ -270,6 +324,13 @@ public class CurrentAffairsQuizService {
         attempt.setSubmittedAt(LocalDateTime.now());
 
         CurrentAffairsQuizAttempt saved = currentAffairsQuizAttemptRepository.save(attempt);
+        currentAffairsQuizAttemptAnswerRepository.deleteByAttempt_Id(saved.getId());
+        if (!attemptAnswers.isEmpty()) {
+            for (CurrentAffairsQuizAttemptAnswer answer : attemptAnswers) {
+                answer.setAttempt(saved);
+            }
+            currentAffairsQuizAttemptAnswerRepository.saveAll(attemptAnswers);
+        }
         return toAttemptStatsDto(saved);
     }
 
@@ -362,6 +423,148 @@ public class CurrentAffairsQuizService {
             }
         }
         return unique;
+    }
+
+    private List<ObjectNode> selectFinalQuestionsWithTopicCoverage(List<ObjectNode> candidates, int targetCount,
+            List<String> requiredTopicAreas) {
+        List<ObjectNode> selected = new ArrayList<>();
+        Set<String> selectedQuestionKeys = new HashSet<>();
+        if (candidates == null || candidates.isEmpty() || targetCount <= 0) {
+            return selected;
+        }
+
+        for (String topic : requiredTopicAreas) {
+            ObjectNode match = null;
+            for (ObjectNode candidate : candidates) {
+                String questionText = candidate.path("question").asText("");
+                if (questionText.isBlank()) {
+                    continue;
+                }
+                String questionKey = normalizeQuestion(questionText);
+                if (selectedQuestionKeys.contains(questionKey)) {
+                    continue;
+                }
+                String topicArea = detectTopicArea(candidate);
+                if (topic.equals(topicArea)) {
+                    match = candidate;
+                    break;
+                }
+            }
+            if (match != null) {
+                selected.add(match);
+                selectedQuestionKeys.add(normalizeQuestion(match.path("question").asText("")));
+                if (selected.size() >= targetCount) {
+                    return selected;
+                }
+            }
+        }
+
+        for (ObjectNode candidate : candidates) {
+            if (selected.size() >= targetCount) {
+                break;
+            }
+            String questionText = candidate.path("question").asText("");
+            if (questionText.isBlank()) {
+                continue;
+            }
+            String questionKey = normalizeQuestion(questionText);
+            if (selectedQuestionKeys.add(questionKey)) {
+                selected.add(candidate);
+            }
+        }
+        return selected;
+    }
+
+    private Set<String> findMissingTopicAreas(List<ObjectNode> questions, List<String> requiredTopicAreas) {
+        Set<String> covered = new HashSet<>();
+        if (questions != null) {
+            for (ObjectNode question : questions) {
+                String topic = detectTopicArea(question);
+                if (topic != null) {
+                    covered.add(topic);
+                }
+            }
+        }
+
+        Set<String> missing = new LinkedHashSet<>();
+        for (String required : requiredTopicAreas) {
+            if (!covered.contains(required)) {
+                missing.add(required);
+            }
+        }
+        return missing;
+    }
+
+    private String detectTopicArea(ObjectNode questionNode) {
+        String explicitTopic = questionNode.path("topic_area").asText("");
+        String fromExplicit = canonicalTopicArea(explicitTopic);
+        if (fromExplicit != null) {
+            questionNode.put("topic_area", fromExplicit);
+            return fromExplicit;
+        }
+
+        String question = questionNode.path("question").asText("");
+        String details = questionNode.path("details_description").asText("");
+        String inferred = canonicalTopicArea(question + " " + details);
+        if (inferred != null) {
+            questionNode.put("topic_area", inferred);
+        }
+        return inferred;
+    }
+
+    private String canonicalTopicArea(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        String normalized = text.toLowerCase(Locale.ROOT);
+        if (normalized.contains("polity") || normalized.contains("governance")) {
+            return "Polity & Governance";
+        }
+        if (normalized.contains("economy") || normalized.contains("economic")
+                || normalized.contains("banking") || normalized.contains("finance")) {
+            return "Economy & Banking";
+        }
+        if (normalized.contains("science") || normalized.contains("tech")
+                || normalized.contains("innovation") || normalized.contains("space")) {
+            return "Science & Technology";
+        }
+        if (normalized.contains("environment") || normalized.contains("ecology")
+                || normalized.contains("climate") || normalized.contains("biodiversity")) {
+            return "Environment & Ecology";
+        }
+        if (normalized.contains("international") || normalized.contains("foreign")
+                || normalized.contains("bilateral") || normalized.contains("multilateral")
+                || normalized.contains("diplomacy") || normalized.contains("un ")
+                || normalized.contains("g20") || normalized.contains("brics")) {
+            return "International Relations";
+        }
+        if (normalized.contains("scheme") || normalized.contains("yojana")
+                || normalized.contains("welfare") || normalized.contains("mission")
+                || normalized.contains("initiative")) {
+            return "National Schemes & Welfare";
+        }
+        if (normalized.contains("defence") || normalized.contains("defense")
+                || normalized.contains("security") || normalized.contains("military")
+                || normalized.contains("army") || normalized.contains("navy")
+                || normalized.contains("air force")) {
+            return "Defence & Security";
+        }
+        if (normalized.contains("award") || normalized.contains("honour")
+                || normalized.contains("honor") || normalized.contains("prize")) {
+            return "Awards & Honours";
+        }
+        if (normalized.contains("sport") || normalized.contains("olympic")
+                || normalized.contains("championship") || normalized.contains("tournament")
+                || normalized.contains("cricket") || normalized.contains("football")
+                || normalized.contains("hockey")) {
+            return "Sports";
+        }
+        if (normalized.contains("index") || normalized.contains("indices")
+                || normalized.contains("report") || normalized.contains("summit")
+                || normalized.contains("ranking")) {
+            return "Reports/Indices/Summits";
+        }
+        return null;
     }
 
     private Set<String> normalizeQuestions(List<String> questions) {
