@@ -16,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import aamscool.backend.aamschoolbackend.controllers.ScraperScheduler;
 import aamscool.backend.aamschoolbackend.model.HomePageLinksModel;
 import aamscool.backend.aamschoolbackend.model.JobPosts;
 import aamscool.backend.aamschoolbackend.repository.JobsRepository;
@@ -30,7 +29,7 @@ public class JobsService {
     @Autowired
     TelegramNotifierService telegramNotifierService;
 
-    private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
+    private static final Logger log = LoggerFactory.getLogger(JobsService.class);
     private final ObjectMapper mapper = new ObjectMapper();
 
     public Optional<JobPosts> getPost(long id) {

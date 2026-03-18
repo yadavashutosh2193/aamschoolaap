@@ -13,7 +13,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import aamscool.backend.aamschoolbackend.controllers.ScraperScheduler;
 import aamscool.backend.aamschoolbackend.model.JobPosts;
 import aamscool.backend.aamschoolbackend.model.ScrapeCache;
 import aamscool.backend.aamschoolbackend.service.JobsService;
@@ -27,7 +26,7 @@ public class OpenAIBatchProcessor {
 	@Autowired
 	JobsService jobsService;
 	private final ObjectMapper mapper = new ObjectMapper();
-	private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
+	private static final Logger log = LoggerFactory.getLogger(OpenAIBatchProcessor.class);
     /* ==================================
        MAIN PROCESS METHOD
     ================================== */

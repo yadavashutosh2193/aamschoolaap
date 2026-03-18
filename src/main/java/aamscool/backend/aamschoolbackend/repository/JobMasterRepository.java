@@ -14,4 +14,6 @@ public interface JobMasterRepository extends JpaRepository<JobMaster, Long> {
     Optional<JobMaster> findBySource(String source);
 
     List<JobMaster> findByLabelOrderByCreatedAtDesc(String label);
+
+    List<JobMaster> findByLabelIgnoreCaseOrderByCreatedAtDesc(String label);
 }

@@ -1,11 +1,11 @@
 package aamscool.backend.aamschoolbackend.util;
-import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
 
 public class LabelUtil {
-
-    private static final ObjectMapper mapper =
-            new ObjectMapper();
-
 
     /* ==================================
        AUTO GENERATE LABEL
@@ -26,19 +26,19 @@ public class LabelUtil {
           }
 
           if (url.contains("/result")) {
-              return "Latest results";
+              return "latest-results";
           }
 
           if (url.contains("/admit-card")) {
-              return "admit cards";
+              return "admit-cards";
           }
 
           if (url.contains("/latest-jobs")) {
-              return "Latest jobs";
+              return "latest-jobs";
           }
 
           if (url.contains("/answer-key")) {
-              return "Answer Keys";
+              return "answer-keys";
           }
 
           // Default
@@ -54,16 +54,16 @@ public class LabelUtil {
         normalized = normalized.replaceAll("[^a-z\\s]", " ").replaceAll("\\s+", " ").trim();
 
         if (normalized.contains("latest") && normalized.contains("job")) {
-            return "Latest jobs";
+            return "latest-jobs";
         }
         if (normalized.contains("admit")) {
-            return "admit cards";
+            return "admit-cards";
         }
         if (normalized.contains("result")) {
-            return "Latest results";
+            return "latest-results";
         }
         if (normalized.contains("answer")) {
-            return "Answer Keys";
+            return "answer-keys";
         }
         if (normalized.contains("admission")) {
             return "admission";
@@ -72,7 +72,45 @@ public class LabelUtil {
             return "documents";
         }
 
-        return categoryName.trim();
+        String slug = categoryName.toLowerCase(Locale.ROOT).trim()
+                .replaceAll("[^a-z0-9\\s-]", " ")
+                .replaceAll("\\s+", "-")
+                .replaceAll("-+", "-")
+                .replaceAll("^-|-$", "");
+
+        return slug.isBlank() ? "job" : slug;
+    }
+
+    public static List<String> buildLabelLookupCandidates(String label) {
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        String requested = label == null ? "" : label.trim();
+        String normalized = normalizeCategoryLabel(requested);
+
+        candidates.add(normalized);
+        if (!requested.isBlank()) {
+            candidates.add(requested);
+            candidates.add(requested.replace('-', ' '));
+        }
+        candidates.add(normalized.replace('-', ' '));
+
+        String legacyDisplay = legacyDisplayFromSlug(normalized);
+        if (legacyDisplay != null && !legacyDisplay.isBlank()) {
+            candidates.add(legacyDisplay);
+        }
+
+        return new ArrayList<>(candidates);
+    }
+
+    private static String legacyDisplayFromSlug(String slug) {
+        return switch (slug) {
+            case "latest-jobs" -> "Latest jobs";
+            case "admit-cards" -> "admit cards";
+            case "latest-results" -> "Latest results";
+            case "answer-keys" -> "Answer Keys";
+            case "admission" -> "admission";
+            case "documents" -> "documents";
+            default -> null;
+        };
     }
 
 }

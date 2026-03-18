@@ -5,6 +5,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
@@ -28,6 +30,7 @@ public class MasterJobResponseDto {
     private List<String> importantNotes;
     private Map<String, Object> officialLinks;
     private Map<String, List<Map<String, String>>> otherTables;
+    @JsonIgnore
     private String source;
     private List<String> syllabusOverview;
 
@@ -180,10 +183,12 @@ public class MasterJobResponseDto {
         this.otherTables = otherTables;
     }
 
+    @JsonIgnore
     public String getSource() {
         return source;
     }
 
+    @JsonIgnore
     public void setSource(String source) {
         this.source = source;
     }
@@ -204,7 +209,7 @@ public class MasterJobResponseDto {
         private String refundGeneralObcAfterCbt;
         private String refundScStEbcFemaleTransgenderAfterCbt;
         private List<String> paymentMode = new ArrayList<>();
-        private List<Map<String, String>> slabRows = new ArrayList<>();
+        private List<Map<String, String>> feeDetail = new ArrayList<>();
 
         public String getGeneralObc() {
             return generalObc;
@@ -246,12 +251,23 @@ public class MasterJobResponseDto {
             this.paymentMode = paymentMode;
         }
 
-        public List<Map<String, String>> getSlabRows() {
-            return slabRows;
+        public List<Map<String, String>> getFeeDetail() {
+            return feeDetail;
         }
 
+        @JsonAlias("slab_rows")
+        public void setFeeDetail(List<Map<String, String>> feeDetail) {
+            this.feeDetail = feeDetail;
+        }
+
+        @JsonIgnore
+        public List<Map<String, String>> getSlabRows() {
+            return feeDetail;
+        }
+
+        @JsonIgnore
         public void setSlabRows(List<Map<String, String>> slabRows) {
-            this.slabRows = slabRows;
+            this.feeDetail = slabRows;
         }
     }
 

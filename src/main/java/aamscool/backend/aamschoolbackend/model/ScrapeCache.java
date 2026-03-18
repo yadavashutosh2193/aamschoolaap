@@ -9,12 +9,10 @@ import org.springframework.stereotype.Component;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
-import aamscool.backend.aamschoolbackend.controllers.ScraperScheduler;
-
 @Component
 public class ScrapeCache {
 
-	private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
+	private static final Logger log = LoggerFactory.getLogger(ScrapeCache.class);
     public static Cache<String, Boolean> processedLinks = Caffeine.newBuilder()
             .maximumSize(100)
             .build();
@@ -36,6 +34,21 @@ public class ScrapeCache {
     public void markProcessed(String link) {
     	log.info("added link into cache " + link);
         processedLinks.put(link, true);
+    }
+
+    public void invalidateProcessedLinks() {
+        processedLinks.invalidateAll();
+        log.info("Invalidated processed links cache");
+    }
+
+    public void invalidateHomepageDataCache() {
+        dataCache.invalidateAll();
+        log.info("Invalidated homepage links data cache");
+    }
+
+    public void invalidateLinkCaches() {
+        invalidateProcessedLinks();
+        invalidateHomepageDataCache();
     }
 }
 

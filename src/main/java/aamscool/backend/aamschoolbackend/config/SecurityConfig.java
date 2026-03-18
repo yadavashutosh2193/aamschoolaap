@@ -81,7 +81,10 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/api/master-jobs/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/master-jobs/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/master-jobs/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/master-jobs/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/master-jobs/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/users/signup").permitAll()
                         .requestMatchers(HttpMethod.POST, "/users/signup/send-otp").permitAll()
                         .requestMatchers(HttpMethod.POST, "/users/signup/verify-otp").permitAll()

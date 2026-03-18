@@ -1,13 +1,17 @@
 package aamscool.backend.aamschoolbackend.controllers;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -17,6 +21,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 
 import aamscool.backend.aamschoolbackend.dto.MasterJobResponseDto;
 import aamscool.backend.aamschoolbackend.model.HomePageLinksModel;
+import aamscool.backend.aamschoolbackend.model.JobMaster;
 import aamscool.backend.aamschoolbackend.service.MasterJobAutoScraperService;
 import aamscool.backend.aamschoolbackend.service.JobMasterService;
 import aamscool.backend.aamschoolbackend.service.MasterJobScraperService;
@@ -31,17 +36,20 @@ public class MasterJobScraperController {
     private final JobMasterService jobMasterService;
     private final OpenAIService openAIService;
     private final ObjectMapper objectMapper;
+    private final MasterJobScheduler masterJobScheduler;
 
     public MasterJobScraperController(MasterJobScraperService masterJobScraperService,
                                       MasterJobAutoScraperService masterJobAutoScraperService,
                                       JobMasterService jobMasterService,
                                       OpenAIService openAIService,
-                                      ObjectMapper objectMapper) {
+                                      ObjectMapper objectMapper,
+                                      MasterJobScheduler masterJobScheduler) {
         this.masterJobScraperService = masterJobScraperService;
         this.masterJobAutoScraperService = masterJobAutoScraperService;
         this.jobMasterService = jobMasterService;
         this.openAIService = openAIService;
         this.objectMapper = objectMapper;
+        this.masterJobScheduler = masterJobScheduler;
     }
 
     @GetMapping("/scrape")
@@ -81,7 +89,7 @@ public class MasterJobScraperController {
 
     @PostMapping("/auto-scrape-homepage")
     public ResponseEntity<?> autoScrapeHomepage(@RequestParam(defaultValue = "false") boolean force,
-                                                @RequestParam(defaultValue = "0") int maxLinks,
+                                                @RequestParam(defaultValue = "5") int maxLinks,
                                                 @RequestParam(defaultValue = "1") int maxPerCategory) {
         Map<String, Object> resp = masterJobAutoScraperService.scrapeHomepageAndSave(force, maxLinks, maxPerCategory);
         Object status = resp.get("status");
@@ -89,6 +97,64 @@ public class MasterJobScraperController {
             return ResponseEntity.badRequest().body(resp);
         }
         return ResponseEntity.ok(resp);
+    }
+
+    @PostMapping("/run-hourly-scheduler")
+    public ResponseEntity<?> runHourlySchedulerNow() {
+        Map<String, Object> resp = masterJobScheduler.runNowWithCacheInvalidation();
+        Object status = resp.get("status");
+        if ("error".equals(status)) {
+            return ResponseEntity.badRequest().body(resp);
+        }
+        return ResponseEntity.ok(resp);
+    }
+
+    @PostMapping("/admin/save")
+    public ResponseEntity<?> adminSaveMasterJob(@RequestBody MasterJobResponseDto payload,
+                                                @RequestParam(required = false) String label) {
+        try {
+            JobMaster saved = jobMasterService.create(payload, label);
+            return ResponseEntity.ok(adminWriteSuccess("created", "Master job saved", saved));
+        } catch (DataIntegrityViolationException ex) {
+            return ResponseEntity.status(409).body(Map.of(
+                    "status", "error",
+                    "message", "Failed to save master job",
+                    "details", "Duplicate unique value (likely source URL). Use a unique source or update existing job."
+            ));
+        } catch (Exception ex) {
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "status", "error",
+                    "message", "Failed to save master job",
+                    "details", ex.getMessage()
+            ));
+        }
+    }
+
+    @PutMapping("/admin/{id}")
+    public ResponseEntity<?> adminUpdateMasterJob(@PathVariable long id,
+                                                  @RequestBody MasterJobResponseDto payload,
+                                                  @RequestParam(required = false) String label) {
+        try {
+            return jobMasterService.updateById(id, payload, label)
+                    .<ResponseEntity<?>>map(saved -> ResponseEntity.ok(
+                            adminWriteSuccess("updated", "Master job updated", saved)))
+                    .orElseGet(() -> ResponseEntity.status(404).body(Map.of(
+                            "status", "error",
+                            "message", "Master job not found"
+                    )));
+        } catch (DataIntegrityViolationException ex) {
+            return ResponseEntity.status(409).body(Map.of(
+                    "status", "error",
+                    "message", "Failed to update master job",
+                    "details", "Duplicate unique value (likely source URL). Use a unique source or keep the existing source."
+            ));
+        } catch (Exception ex) {
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "status", "error",
+                    "message", "Failed to update master job",
+                    "details", ex.getMessage()
+            ));
+        }
     }
 
     @GetMapping("/latest/{label}")
@@ -148,5 +214,15 @@ public class MasterJobScraperController {
         } catch (Exception ex) {
             return -1;
         }
+    }
+
+    private Map<String, Object> adminWriteSuccess(String action, String message, JobMaster saved) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("status", "success");
+        response.put("action", action);
+        response.put("message", message);
+        response.put("jobId", saved.getId());
+        response.put("title", saved.getTitle());
+        return response;
     }
 }

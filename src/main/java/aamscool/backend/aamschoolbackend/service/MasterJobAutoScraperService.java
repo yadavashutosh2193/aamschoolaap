@@ -10,7 +10,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import aamscool.backend.aamschoolbackend.controllers.ScraperScheduler;
 import aamscool.backend.aamschoolbackend.dto.MasterJobResponseDto;
 import aamscool.backend.aamschoolbackend.model.Category;
 import aamscool.backend.aamschoolbackend.model.Post;
@@ -21,7 +20,8 @@ import aamscool.backend.aamschoolbackend.util.LabelUtil;
 @Service
 public class MasterJobAutoScraperService {
 
-    private static final Logger log = LoggerFactory.getLogger(ScraperScheduler.class);
+    private static final Logger log = LoggerFactory.getLogger(MasterJobAutoScraperService.class);
+    private static final int DEFAULT_HOMEPAGE_SCRAPE_LIMIT = 5;
 
     private final MasterJobScraperService masterJobScraperService;
     private final JobMasterService jobMasterService;
@@ -36,11 +36,12 @@ public class MasterJobAutoScraperService {
     }
 
     public Map<String, Object> scrapeHomepageAndSave(boolean force) {
-        return scrapeHomepageAndSave(force, Integer.MAX_VALUE, 1);
+        return scrapeHomepageAndSave(force, DEFAULT_HOMEPAGE_SCRAPE_LIMIT, 1);
     }
 
     public Map<String, Object> scrapeHomepageAndSave(boolean force, int maxLinks) {
-        return scrapeHomepageAndSave(force, maxLinks, 1);
+        int effectiveMaxLinks = maxLinks <= 0 ? DEFAULT_HOMEPAGE_SCRAPE_LIMIT : maxLinks;
+        return scrapeHomepageAndSave(force, effectiveMaxLinks, 1);
     }
 
     public Map<String, Object> scrapeHomepageAndSave(boolean force, int maxLinks, int maxPerCategory) {
@@ -63,7 +64,7 @@ public class MasterJobAutoScraperService {
         }
 
         int processedLinks = 0;
-        int safeMaxLinks = maxLinks <= 0 ? Integer.MAX_VALUE : maxLinks;
+        int safeMaxLinks = maxLinks <= 0 ? DEFAULT_HOMEPAGE_SCRAPE_LIMIT : maxLinks;
         int safeMaxPerCategory = maxPerCategory <= 0 ? Integer.MAX_VALUE : maxPerCategory;
 
         for (Category category : categories) {
@@ -82,9 +83,10 @@ public class MasterJobAutoScraperService {
                 }
                 totalLinks++;
 
-                if (!force && cache.isProcessed(url)) {
+                if (cache.isProcessed(url)) {
                     skipped++;
                     categorySkipped++;
+                    processedLinks++;
                     categoryProcessed++;
                     continue;
                 }

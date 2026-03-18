@@ -17,6 +17,7 @@ import aamscool.backend.aamschoolbackend.dto.MasterJobResponseDto;
 import aamscool.backend.aamschoolbackend.model.HomePageLinksModel;
 import aamscool.backend.aamschoolbackend.model.JobMaster;
 import aamscool.backend.aamschoolbackend.repository.JobMasterRepository;
+import aamscool.backend.aamschoolbackend.util.LabelUtil;
 
 @Service
 public class JobMasterService {
@@ -36,41 +37,52 @@ public class JobMasterService {
         }
 
         String source = safe(dto.getSource());
-        Optional<JobMaster> existing = source.isBlank() ? Optional.empty() : jobMasterRepository.findBySource(source);
+        Optional<JobMaster> existing =
+                (source == null || source.isBlank()) ? Optional.empty() : jobMasterRepository.findBySource(source);
         JobMaster row = existing.orElseGet(JobMaster::new);
-
-        if (row.getCreatedAt() == null) {
-            row.setCreatedAt(LocalDate.now());
-        }
-        row.setUpdatedAt(LocalDate.now());
-
-        row.setLabel(safe(label));
-        row.setSource(source.isBlank() ? null : source);
-        row.setTitle(safe(dto.getTitle()));
-        row.setShortDescription(safe(dto.getShortDescription()));
-        row.setAdvertisementNo(safe(dto.getAdvertisementNo()));
-        row.setPostName(safe(dto.getPostName()));
-        row.setConductingBody(safe(dto.getConductingBody()));
-        row.setPayScale(safe(dto.getPayScale()));
-
-        row.setImportantDates(writeJson(dto.getImportantDates()));
-        row.setApplicationFee(writeJson(dto.getApplicationFee()));
-        row.setEligibilityCriteria(writeJson(dto.getEligibilityCriteria()));
-        row.setVacancyDetails(writeJson(dto.getVacancyDetails()));
-        row.setApplicationProcess(writeJson(dto.getApplicationProcess()));
-        row.setExamScheme(writeJson(dto.getExamScheme()));
-        row.setSelectionProcess(writeJson(dto.getSelectionProcess()));
-        row.setImportantNotes(writeJson(dto.getImportantNotes()));
-        row.setOfficialLinks(writeJson(dto.getOfficialLinks()));
-        row.setSyllabusOverview(writeJson(dto.getSyllabusOverview()));
-        row.setOtherTables(writeJson(dto.getOtherTables()));
-
+        applyDto(row, dto, label);
         return jobMasterRepository.save(row);
+    }
+
+    @Transactional
+    public JobMaster create(MasterJobResponseDto dto, String label) throws Exception {
+        if (dto == null) {
+            throw new IllegalArgumentException("dto is required");
+        }
+        JobMaster row = new JobMaster();
+        applyDto(row, dto, label);
+        return jobMasterRepository.save(row);
+    }
+
+    @Transactional
+    public Optional<JobMaster> updateById(long id, MasterJobResponseDto dto, String label) throws Exception {
+        if (dto == null) {
+            throw new IllegalArgumentException("dto is required");
+        }
+        Optional<JobMaster> existing = jobMasterRepository.findById(id);
+        if (existing.isEmpty()) {
+            return Optional.empty();
+        }
+
+        JobMaster row = existing.get();
+        applyDto(row, dto, label);
+        return Optional.of(jobMasterRepository.save(row));
     }
 
     public List<HomePageLinksModel> getLatestByLabel(String label) {
         List<HomePageLinksModel> out = new ArrayList<>();
-        List<JobMaster> rows = jobMasterRepository.findByLabelOrderByCreatedAtDesc(label);
+        String requestedLabel = safe(label);
+        List<JobMaster> rows = new ArrayList<>();
+        for (String candidate : LabelUtil.buildLabelLookupCandidates(requestedLabel)) {
+            if (candidate == null || candidate.isBlank()) {
+                continue;
+            }
+            rows = jobMasterRepository.findByLabelIgnoreCaseOrderByCreatedAtDesc(candidate);
+            if (!rows.isEmpty()) {
+                break;
+            }
+        }
+
         for (JobMaster row : rows) {
             out.add(new HomePageLinksModel(
                     safe(row.getTitle()),
@@ -113,6 +125,39 @@ public class JobMasterService {
     private String writeJson(Object value) throws Exception {
         if (value == null) return null;
         return objectMapper.writeValueAsString(value);
+    }
+
+    private void applyDto(JobMaster row, MasterJobResponseDto dto, String label) throws Exception {
+        String source = safe(dto.getSource());
+        String safeLabel = safe(label);
+
+        if (row.getCreatedAt() == null) {
+            row.setCreatedAt(LocalDate.now());
+        }
+        row.setUpdatedAt(LocalDate.now());
+
+        if (safeLabel != null && !safeLabel.isBlank()) {
+            row.setLabel(LabelUtil.normalizeCategoryLabel(safeLabel));
+        }
+        row.setSource((source == null || source.isBlank()) ? null : source);
+        row.setTitle(safe(dto.getTitle()));
+        row.setShortDescription(safe(dto.getShortDescription()));
+        row.setAdvertisementNo(safe(dto.getAdvertisementNo()));
+        row.setPostName(safe(dto.getPostName()));
+        row.setConductingBody(safe(dto.getConductingBody()));
+        row.setPayScale(safe(dto.getPayScale()));
+
+        row.setImportantDates(writeJson(dto.getImportantDates()));
+        row.setApplicationFee(writeJson(dto.getApplicationFee()));
+        row.setEligibilityCriteria(writeJson(dto.getEligibilityCriteria()));
+        row.setVacancyDetails(writeJson(dto.getVacancyDetails()));
+        row.setApplicationProcess(writeJson(dto.getApplicationProcess()));
+        row.setExamScheme(writeJson(dto.getExamScheme()));
+        row.setSelectionProcess(writeJson(dto.getSelectionProcess()));
+        row.setImportantNotes(writeJson(dto.getImportantNotes()));
+        row.setOfficialLinks(writeJson(dto.getOfficialLinks()));
+        row.setSyllabusOverview(writeJson(dto.getSyllabusOverview()));
+        row.setOtherTables(writeJson(dto.getOtherTables()));
     }
 
     private Map<String, String> parseStringMap(String json) {
