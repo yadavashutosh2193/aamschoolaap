@@ -4,7 +4,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.annotation.JsonAnyGetter;
+import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -235,6 +238,7 @@ public class MasterJobResponseDto {
         private List<String> paymentMode = new ArrayList<>();
         @JsonAlias("feeDetail")
         private List<Map<String, String>> feeDetail = new ArrayList<>();
+        private final Map<String, Object> extraFields = new LinkedHashMap<>();
 
         public String getGeneralObc() {
             return generalObc;
@@ -281,8 +285,8 @@ public class MasterJobResponseDto {
         }
 
         @JsonAlias("slab_rows")
-        public void setFeeDetail(List<Map<String, String>> feeDetail) {
-            this.feeDetail = feeDetail;
+        public void setFeeDetail(List<? extends Map<String, ?>> feeDetail) {
+            this.feeDetail = normalizeRowList(feeDetail);
         }
 
         @JsonIgnore
@@ -293,6 +297,37 @@ public class MasterJobResponseDto {
         @JsonIgnore
         public void setSlabRows(List<Map<String, String>> slabRows) {
             this.feeDetail = slabRows;
+        }
+
+        @JsonAnySetter
+        public void putExtraField(String key, Object value) {
+            extraFields.put(key, value);
+        }
+
+        @JsonAnyGetter
+        public Map<String, Object> getExtraFields() {
+            return extraFields;
+        }
+
+        private List<Map<String, String>> normalizeRowList(List<? extends Map<String, ?>> rows) {
+            List<Map<String, String>> normalized = new ArrayList<>();
+            if (rows == null || rows.isEmpty()) {
+                return normalized;
+            }
+            for (Map<String, ?> row : rows) {
+                Map<String, String> normalizedRow = new LinkedHashMap<>();
+                if (row != null) {
+                    for (Map.Entry<String, ?> entry : row.entrySet()) {
+                        normalizedRow.put(entry.getKey(), stringify(entry.getValue()));
+                    }
+                }
+                normalized.add(normalizedRow);
+            }
+            return normalized;
+        }
+
+        private String stringify(Object value) {
+            return value == null ? null : String.valueOf(value);
         }
     }
 
@@ -312,6 +347,7 @@ public class MasterJobResponseDto {
         private String residencyRequirement;
         @JsonAlias("postWiseQualification")
         private Map<String, String> postWiseQualification = new LinkedHashMap<>();
+        private final Map<String, Object> extraFields = new LinkedHashMap<>();
 
         public String getGender() {
             return gender;
@@ -365,8 +401,40 @@ public class MasterJobResponseDto {
             return postWiseQualification;
         }
 
-        public void setPostWiseQualification(Map<String, String> postWiseQualification) {
-            this.postWiseQualification = postWiseQualification;
+        public void setPostWiseQualification(Map<String, ?> postWiseQualification) {
+            this.postWiseQualification = new LinkedHashMap<>();
+            if (postWiseQualification == null || postWiseQualification.isEmpty()) {
+                return;
+            }
+
+            for (Map.Entry<String, ?> entry : postWiseQualification.entrySet()) {
+                String key = entry.getKey();
+                Object value = entry.getValue();
+                this.postWiseQualification.put(key, stringifyPostWiseValue(value));
+            }
+        }
+
+        private String stringifyPostWiseValue(Object value) {
+            if (value == null) {
+                return null;
+            }
+            if (value instanceof List<?> listValue) {
+                return listValue.stream()
+                        .map(item -> item == null ? "" : String.valueOf(item).trim())
+                        .filter(item -> !item.isBlank())
+                        .collect(Collectors.joining("\n"));
+            }
+            return String.valueOf(value);
+        }
+
+        @JsonAnySetter
+        public void putExtraField(String key, Object value) {
+            extraFields.put(key, value);
+        }
+
+        @JsonAnyGetter
+        public Map<String, Object> getExtraFields() {
+            return extraFields;
         }
     }
 
@@ -381,29 +449,30 @@ public class MasterJobResponseDto {
         private Map<String, String> categoryWise = new LinkedHashMap<>();
         @JsonAlias("tableRows")
         private List<Map<String, String>> tableRows = new ArrayList<>();
+        private final Map<String, Object> extraFields = new LinkedHashMap<>();
 
         public String getTotalVacancy() {
             return totalVacancy;
         }
 
-        public void setTotalVacancy(String totalVacancy) {
-            this.totalVacancy = totalVacancy;
+        public void setTotalVacancy(Object totalVacancy) {
+            this.totalVacancy = totalVacancy == null ? null : String.valueOf(totalVacancy);
         }
 
         public Map<String, String> getPostWise() {
             return postWise;
         }
 
-        public void setPostWise(Map<String, String> postWise) {
-            this.postWise = postWise;
+        public void setPostWise(Map<String, ?> postWise) {
+            this.postWise = normalizeStringMap(postWise);
         }
 
         public Map<String, String> getCategoryWise() {
             return categoryWise;
         }
 
-        public void setCategoryWise(Map<String, String> categoryWise) {
-            this.categoryWise = categoryWise;
+        public void setCategoryWise(Map<String, ?> categoryWise) {
+            this.categoryWise = normalizeStringMap(categoryWise);
         }
 
         public List<Map<String, String>> getTableRows() {
@@ -411,8 +480,50 @@ public class MasterJobResponseDto {
         }
 
         @JsonAlias({"districtWiseVacancy", "district_wise_vacancy"})
-        public void setTableRows(List<Map<String, String>> tableRows) {
-            this.tableRows = tableRows;
+        public void setTableRows(List<? extends Map<String, ?>> tableRows) {
+            this.tableRows = normalizeRowList(tableRows);
+        }
+
+        @JsonAnySetter
+        public void putExtraField(String key, Object value) {
+            extraFields.put(key, value);
+        }
+
+        @JsonAnyGetter
+        public Map<String, Object> getExtraFields() {
+            return extraFields;
+        }
+
+        private Map<String, String> normalizeStringMap(Map<String, ?> source) {
+            Map<String, String> normalized = new LinkedHashMap<>();
+            if (source == null || source.isEmpty()) {
+                return normalized;
+            }
+            for (Map.Entry<String, ?> entry : source.entrySet()) {
+                normalized.put(entry.getKey(), stringify(entry.getValue()));
+            }
+            return normalized;
+        }
+
+        private List<Map<String, String>> normalizeRowList(List<? extends Map<String, ?>> rows) {
+            List<Map<String, String>> normalized = new ArrayList<>();
+            if (rows == null || rows.isEmpty()) {
+                return normalized;
+            }
+            for (Map<String, ?> row : rows) {
+                Map<String, String> normalizedRow = new LinkedHashMap<>();
+                if (row != null) {
+                    for (Map.Entry<String, ?> entry : row.entrySet()) {
+                        normalizedRow.put(entry.getKey(), stringify(entry.getValue()));
+                    }
+                }
+                normalized.add(normalizedRow);
+            }
+            return normalized;
+        }
+
+        private String stringify(Object value) {
+            return value == null ? null : String.valueOf(value);
         }
     }
 }
