@@ -19,8 +19,10 @@ import org.springframework.web.bind.annotation.RestController;
 import aamscool.backend.aamschoolbackend.dto.QuestionBulkUpsertResult;
 import aamscool.backend.aamschoolbackend.dto.QuestionDto;
 import aamscool.backend.aamschoolbackend.dto.TopicCountDto;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import aamscool.backend.aamschoolbackend.service.QuestionService;
 import aamscool.backend.aamschoolbackend.service.QuizService;
 
@@ -87,13 +89,43 @@ public class QuestionController {
             if (questionsNode == null || !questionsNode.isArray()) {
                 throw new IllegalArgumentException("questions must be a JSON array");
             }
+
+            // Backward compatibility: allow explanation as plain string in bulk payload.
+            for (JsonNode questionNode : questionsNode) {
+                if (!questionNode.isObject()) {
+                    continue;
+                }
+                ObjectNode questionObject = (ObjectNode) questionNode;
+                JsonNode explanationNode = questionObject.get("explanation");
+                if (explanationNode != null && explanationNode.isTextual()
+                        && (questionObject.get("explanationText") == null || questionObject.get("explanationText").isNull())) {
+                    questionObject.put("explanationText", explanationNode.asText());
+                    questionObject.remove("explanation");
+                }
+            }
+
             return objectMapper.convertValue(
                     questionsNode,
                     objectMapper.getTypeFactory().constructCollectionType(List.class, QuestionDto.class)
             );
         } catch (Exception ex) {
-            throw new IllegalArgumentException("Invalid JSON payload", ex);
+            String detail = resolveJsonErrorDetail(ex);
+            if (detail == null || detail.isBlank()) {
+                throw new IllegalArgumentException("Invalid JSON payload", ex);
+            }
+            throw new IllegalArgumentException("Invalid JSON payload: " + detail, ex);
         }
+    }
+
+    private String resolveJsonErrorDetail(Exception ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof JsonProcessingException) {
+                return current.getMessage();
+            }
+            current = current.getCause();
+        }
+        return ex.getMessage();
     }
 
     @PutMapping("/{id}")

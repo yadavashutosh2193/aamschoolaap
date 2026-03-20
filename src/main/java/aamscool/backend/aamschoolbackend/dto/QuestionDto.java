@@ -28,7 +28,7 @@ public class QuestionDto {
     private List<QuestionChoiceDto> choices;
     private CorrectAnswerDto correctAnswer;
     private ExplanationDto explanation;
-    @JsonAlias("explanationText")
+    @JsonAlias({"explanationText", "descriptionText"})
     private String explanationText;
     private AttemptStatsDto attemptStats;
     private SourceDto source;

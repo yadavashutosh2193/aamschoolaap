@@ -159,10 +159,7 @@ public class QuestionService {
             return null;
         }
         if (dto.getQuestionCode() != null && !dto.getQuestionCode().isBlank()) {
-            Question byCode = questionRepository.findByQuestionCode(dto.getQuestionCode());
-            if (byCode != null) {
-                return byCode;
-            }
+            return questionRepository.findByQuestionCode(dto.getQuestionCode());
         }
         if (dto.getQuestionText() != null && !dto.getQuestionText().isBlank()) {
             return questionRepository.findByQuestionText(dto.getQuestionText());
