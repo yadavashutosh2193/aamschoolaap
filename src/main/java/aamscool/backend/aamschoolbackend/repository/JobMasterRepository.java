@@ -13,7 +13,7 @@ public interface JobMasterRepository extends JpaRepository<JobMaster, Long> {
 
     Optional<JobMaster> findBySource(String source);
 
-    List<JobMaster> findByLabelOrderByCreatedAtDesc(String label);
+    List<JobMaster> findByLabelOrderByUpdatedAtDesc(String label);
 
-    List<JobMaster> findByLabelIgnoreCaseOrderByCreatedAtDesc(String label);
+    List<JobMaster> findByLabelIgnoreCaseOrderByUpdatedAtDesc(String label);
 }

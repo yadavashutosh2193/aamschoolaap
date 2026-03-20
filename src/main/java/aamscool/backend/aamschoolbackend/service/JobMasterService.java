@@ -77,7 +77,7 @@ public class JobMasterService {
             if (candidate == null || candidate.isBlank()) {
                 continue;
             }
-            rows = jobMasterRepository.findByLabelIgnoreCaseOrderByCreatedAtDesc(candidate);
+            rows = jobMasterRepository.findByLabelIgnoreCaseOrderByUpdatedAtDesc(candidate);
             if (!rows.isEmpty()) {
                 break;
             }
@@ -87,7 +87,7 @@ public class JobMasterService {
             out.add(new HomePageLinksModel(
                     safe(row.getTitle()),
                     row.getId(),
-                    row.getCreatedAt(),
+                    row.getUpdatedAt() != null ? row.getUpdatedAt() : row.getCreatedAt(),
                     parseStringMap(row.getImportantDates())
             ));
         }
