@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import aamscool.backend.aamschoolbackend.model.CurrentAffairsQuiz;
+import aamscool.backend.aamschoolbackend.model.JobMaster;
 import aamscool.backend.aamschoolbackend.model.JobPosts;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -51,6 +52,24 @@ public class TelegramNotifierService {
         }, TELEGRAM_DELAY_MINUTES, TimeUnit.MINUTES);
     }
 
+    public void sendMasterJobUpdate(JobMaster job) {
+        if (BOT_TOKEN.isBlank() || CHAT_ID.isBlank()) {
+            log.info("Telegram config missing. Skipping notify for masterJobId={}", job.getId());
+            return;
+        }
+
+        scheduler.schedule(() -> {
+            try {
+                String postPageLink = buildMasterPostPageLink(job);
+                String message = buildSectionMessage(job.getLabel(), job.getTitle(), job.getAdvertisementNo(), postPageLink);
+                String buttonText = buttonTextForLabel(normalizeLabel(job.getLabel()));
+                sendTelegramMessage(message, buttonText, postPageLink);
+            } catch (Exception ex) {
+                log.error("Telegram send failed for masterJobId={}", job.getId(), ex);
+            }
+        }, TELEGRAM_DELAY_MINUTES, TimeUnit.MINUTES);
+    }
+
     public void sendCurrentAffairsQuizUpdate(CurrentAffairsQuiz quiz) {
         if (BOT_TOKEN.isBlank() || CHAT_ID.isBlank()) {
             log.info("Telegram config missing. Skipping quiz notify for quizId={}", quiz.getQuizId());
@@ -77,8 +96,16 @@ public class TelegramNotifierService {
     }
 
     private String buildPostPageLink(JobPosts job) {
-        String slug = slugify(job.getTitle());
-        return trimTrailingSlash(PUBLIC_BASE_URL) + "/job/" + slug + "-" + job.getJobId();
+        return buildPostPageLink(job.getTitle(), job.getJobId());
+    }
+
+    private String buildMasterPostPageLink(JobMaster job) {
+        return buildPostPageLink(job.getTitle(), job.getId());
+    }
+
+    private String buildPostPageLink(String title, long id) {
+        String slug = slugify(title);
+        return trimTrailingSlash(PUBLIC_BASE_URL) + "/job/" + slug + "-" + id;
     }
 
     private String buildQuizPageLink(CurrentAffairsQuiz quiz) {
@@ -86,9 +113,13 @@ public class TelegramNotifierService {
     }
 
     private String buildSectionMessage(JobPosts job, String postPageLink) {
-        String label = normalizeLabel(job.getLabel());
-        String title = defaultString(job.getTitle(), "New Update");
-        String adNo = defaultString(job.getAdvertisementNo(), "");
+        return buildSectionMessage(job.getLabel(), job.getTitle(), job.getAdvertisementNo(), postPageLink);
+    }
+
+    private String buildSectionMessage(String labelValue, String titleValue, String adNoValue, String postPageLink) {
+        String label = normalizeLabel(labelValue);
+        String title = defaultString(titleValue, "New Update");
+        String adNo = defaultString(adNoValue, "");
         String adNoLine = (!adNo.isBlank() && !"NA".equalsIgnoreCase(adNo))
                 ? "Advertisement No: " + adNo + "\n"
                 : "";

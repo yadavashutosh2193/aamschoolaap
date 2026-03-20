@@ -139,7 +139,9 @@ public class JobMasterService {
         if (safeLabel != null && !safeLabel.isBlank()) {
             row.setLabel(LabelUtil.normalizeCategoryLabel(safeLabel));
         }
-        row.setSource((source == null || source.isBlank()) ? null : source);
+        if (source != null && !source.isBlank()) {
+            row.setSource(source);
+        }
         row.setTitle(safe(dto.getTitle()));
         row.setShortDescription(safe(dto.getShortDescription()));
         row.setAdvertisementNo(safe(dto.getAdvertisementNo()));

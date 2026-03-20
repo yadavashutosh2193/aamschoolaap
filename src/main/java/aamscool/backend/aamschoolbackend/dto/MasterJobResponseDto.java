@@ -7,31 +7,49 @@ import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class MasterJobResponseDto {
 
     private String title;
+    @JsonAlias("shortDescription")
     private String shortDescription;
+    @JsonAlias("advertisementNo")
     private String advertisementNo;
+    @JsonAlias("postName")
     private String postName;
+    @JsonAlias("conductingBody")
     private String conductingBody;
+    @JsonAlias("importantDates")
     private Map<String, String> importantDates;
+    @JsonAlias("applicationFee")
     private ApplicationFeeDto applicationFee;
+    @JsonAlias("eligibilityCriteria")
     private EligibilityCriteriaDto eligibilityCriteria;
+    @JsonAlias("vacancyDetails")
     private VacancyDetailsDto vacancyDetails;
+    @JsonAlias("payScale")
     private String payScale;
+    @JsonAlias("applicationProcess")
     private List<String> applicationProcess;
+    @JsonAlias("examScheme")
     private Map<String, Object> examScheme;
+    @JsonAlias("selectionProcess")
     private List<String> selectionProcess;
+    @JsonAlias("importantNotes")
     private List<String> importantNotes;
+    @JsonAlias("officialLinks")
     private Map<String, Object> officialLinks;
+    @JsonAlias("otherTables")
     private Map<String, List<Map<String, String>>> otherTables;
     @JsonIgnore
     private String source;
+    @JsonAlias("syllabusOverview")
     private List<String> syllabusOverview;
 
     public MasterJobResponseDto() {
@@ -203,12 +221,19 @@ public class MasterJobResponseDto {
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class ApplicationFeeDto {
+        @JsonAlias("generalObc")
         private String generalObc;
+        @JsonAlias("scStEbcFemaleTransgender")
         private String scStEbcFemaleTransgender;
+        @JsonAlias("refundGeneralObcAfterCbt")
         private String refundGeneralObcAfterCbt;
+        @JsonAlias("refundScStEbcFemaleTransgenderAfterCbt")
         private String refundScStEbcFemaleTransgenderAfterCbt;
+        @JsonAlias("paymentMode")
         private List<String> paymentMode = new ArrayList<>();
+        @JsonAlias("feeDetail")
         private List<Map<String, String>> feeDetail = new ArrayList<>();
 
         public String getGeneralObc() {
@@ -272,12 +297,29 @@ public class MasterJobResponseDto {
     }
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class EligibilityCriteriaDto {
+        @JsonAlias("gender")
+        private String gender;
+        @JsonAlias("minimumAge")
         private String minimumAge;
+        @JsonAlias("maximumAge")
         private String maximumAge;
+        @JsonAlias("ageAsOn")
         private String ageAsOn;
         private String qualification;
+        @JsonAlias("residencyRequirement")
+        private String residencyRequirement;
+        @JsonAlias("postWiseQualification")
         private Map<String, String> postWiseQualification = new LinkedHashMap<>();
+
+        public String getGender() {
+            return gender;
+        }
+
+        public void setGender(String gender) {
+            this.gender = gender;
+        }
 
         public String getMinimumAge() {
             return minimumAge;
@@ -311,6 +353,14 @@ public class MasterJobResponseDto {
             this.qualification = qualification;
         }
 
+        public String getResidencyRequirement() {
+            return residencyRequirement;
+        }
+
+        public void setResidencyRequirement(String residencyRequirement) {
+            this.residencyRequirement = residencyRequirement;
+        }
+
         public Map<String, String> getPostWiseQualification() {
             return postWiseQualification;
         }
@@ -321,10 +371,15 @@ public class MasterJobResponseDto {
     }
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class VacancyDetailsDto {
+        @JsonAlias("totalVacancy")
         private String totalVacancy;
+        @JsonAlias("postWise")
         private Map<String, String> postWise = new LinkedHashMap<>();
+        @JsonAlias("categoryWise")
         private Map<String, String> categoryWise = new LinkedHashMap<>();
+        @JsonAlias("tableRows")
         private List<Map<String, String>> tableRows = new ArrayList<>();
 
         public String getTotalVacancy() {
@@ -355,6 +410,7 @@ public class MasterJobResponseDto {
             return tableRows;
         }
 
+        @JsonAlias({"districtWiseVacancy", "district_wise_vacancy"})
         public void setTableRows(List<Map<String, String>> tableRows) {
             this.tableRows = tableRows;
         }

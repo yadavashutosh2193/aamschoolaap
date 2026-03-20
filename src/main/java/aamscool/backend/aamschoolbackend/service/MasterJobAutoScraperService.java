@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import aamscool.backend.aamschoolbackend.dto.MasterJobResponseDto;
 import aamscool.backend.aamschoolbackend.model.Category;
+import aamscool.backend.aamschoolbackend.model.JobMaster;
 import aamscool.backend.aamschoolbackend.model.Post;
 import aamscool.backend.aamschoolbackend.model.ScrapeCache;
 import aamscool.backend.aamschoolbackend.util.HomepageScraperService;
@@ -25,13 +26,16 @@ public class MasterJobAutoScraperService {
 
     private final MasterJobScraperService masterJobScraperService;
     private final JobMasterService jobMasterService;
+    private final TelegramNotifierService telegramNotifierService;
     private final ScrapeCache cache;
 
     public MasterJobAutoScraperService(MasterJobScraperService masterJobScraperService,
                                        JobMasterService jobMasterService,
+                                       TelegramNotifierService telegramNotifierService,
                                        ScrapeCache cache) {
         this.masterJobScraperService = masterJobScraperService;
         this.jobMasterService = jobMasterService;
+        this.telegramNotifierService = telegramNotifierService;
         this.cache = cache;
     }
 
@@ -93,7 +97,8 @@ public class MasterJobAutoScraperService {
 
                 try {
                     MasterJobResponseDto dto = masterJobScraperService.scrapeToMasterJson(url, true, false);
-                    saveDto(dto, label);
+                    JobMaster savedJob = saveDto(dto, label);
+                    sendTelegramForSavedJob(savedJob);
                     cache.markProcessed(url);
                     saved++;
                     categorySaved++;
@@ -162,7 +167,8 @@ public class MasterJobAutoScraperService {
 
         try {
             MasterJobResponseDto dto = masterJobScraperService.scrapeToMasterJson(url, true, includeLegacyPostWise);
-            saveDto(dto, normalizedLabel);
+            JobMaster savedJob = saveDto(dto, normalizedLabel);
+            sendTelegramForSavedJob(savedJob);
             cache.markProcessed(url);
             resp.put("status", "success");
             resp.put("url", url);
@@ -177,11 +183,22 @@ public class MasterJobAutoScraperService {
         }
     }
 
-    private void saveDto(MasterJobResponseDto dto, String label) throws Exception {
+    private JobMaster saveDto(MasterJobResponseDto dto, String label) throws Exception {
         if (dto == null) {
-            return;
+            return null;
         }
         String safeLabel = (label == null || label.isBlank()) ? "job" : label;
-        jobMasterService.saveOrUpdate(dto, safeLabel);
+        return jobMasterService.saveOrUpdate(dto, safeLabel);
+    }
+
+    private void sendTelegramForSavedJob(JobMaster savedJob) {
+        if (savedJob == null) {
+            return;
+        }
+        try {
+            telegramNotifierService.sendMasterJobUpdate(savedJob);
+        } catch (Exception ex) {
+            log.error("Telegram notification failed for masterJobId={}", savedJob.getId(), ex);
+        }
     }
 }

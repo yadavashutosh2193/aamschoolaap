@@ -44,7 +44,7 @@ public class MasterJobScheduler {
         }
 
         Map<String, Object> summary =
-                masterJobAutoScraperService.scrapeHomepageAndSave(false, Integer.MAX_VALUE, Integer.MAX_VALUE);
+                masterJobAutoScraperService.scrapeHomepageAndSave(false, Integer.MAX_VALUE, 1);
         summary.put("trigger", invalidateCacheFirst ? "manual" : "scheduled");
         summary.put("cache_invalidated", invalidateCacheFirst);
         return summary;
