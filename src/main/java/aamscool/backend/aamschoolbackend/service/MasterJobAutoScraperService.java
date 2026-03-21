@@ -27,15 +27,18 @@ public class MasterJobAutoScraperService {
     private final MasterJobScraperService masterJobScraperService;
     private final JobMasterService jobMasterService;
     private final TelegramNotifierService telegramNotifierService;
+    private final FacebookPageNotifierService facebookPageNotifierService;
     private final ScrapeCache cache;
 
     public MasterJobAutoScraperService(MasterJobScraperService masterJobScraperService,
                                        JobMasterService jobMasterService,
                                        TelegramNotifierService telegramNotifierService,
+                                       FacebookPageNotifierService facebookPageNotifierService,
                                        ScrapeCache cache) {
         this.masterJobScraperService = masterJobScraperService;
         this.jobMasterService = jobMasterService;
         this.telegramNotifierService = telegramNotifierService;
+        this.facebookPageNotifierService = facebookPageNotifierService;
         this.cache = cache;
     }
 
@@ -98,7 +101,7 @@ public class MasterJobAutoScraperService {
                 try {
                     MasterJobResponseDto dto = masterJobScraperService.scrapeToMasterJson(url, true, false);
                     JobMaster savedJob = saveDto(dto, label);
-                    sendTelegramForSavedJob(savedJob);
+                    sendSocialNotificationsForSavedJob(savedJob);
                     cache.markProcessed(url);
                     saved++;
                     categorySaved++;
@@ -168,7 +171,7 @@ public class MasterJobAutoScraperService {
         try {
             MasterJobResponseDto dto = masterJobScraperService.scrapeToMasterJson(url, true, includeLegacyPostWise);
             JobMaster savedJob = saveDto(dto, normalizedLabel);
-            sendTelegramForSavedJob(savedJob);
+            sendSocialNotificationsForSavedJob(savedJob);
             cache.markProcessed(url);
             resp.put("status", "success");
             resp.put("url", url);
@@ -191,7 +194,7 @@ public class MasterJobAutoScraperService {
         return jobMasterService.saveOrUpdate(dto, safeLabel);
     }
 
-    private void sendTelegramForSavedJob(JobMaster savedJob) {
+    private void sendSocialNotificationsForSavedJob(JobMaster savedJob) {
         if (savedJob == null) {
             return;
         }
@@ -199,6 +202,11 @@ public class MasterJobAutoScraperService {
             telegramNotifierService.sendMasterJobUpdate(savedJob);
         } catch (Exception ex) {
             log.error("Telegram notification failed for masterJobId={}", savedJob.getId(), ex);
+        }
+        try {
+            facebookPageNotifierService.sendMasterJobUpdate(savedJob);
+        } catch (Exception ex) {
+            log.error("Facebook notification failed for masterJobId={}", savedJob.getId(), ex);
         }
     }
 }

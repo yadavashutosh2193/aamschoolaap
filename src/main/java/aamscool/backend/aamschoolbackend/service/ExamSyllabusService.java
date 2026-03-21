@@ -22,13 +22,16 @@ public class ExamSyllabusService {
     private final ExamSyllabusRepository examSyllabusRepository;
     private final ObjectMapper objectMapper;
     private final TelegramNotifierService telegramNotifierService;
+    private final FacebookPageNotifierService facebookPageNotifierService;
 
     public ExamSyllabusService(ExamSyllabusRepository examSyllabusRepository,
                                ObjectMapper objectMapper,
-                               TelegramNotifierService telegramNotifierService) {
+                               TelegramNotifierService telegramNotifierService,
+                               FacebookPageNotifierService facebookPageNotifierService) {
         this.examSyllabusRepository = examSyllabusRepository;
         this.objectMapper = objectMapper;
         this.telegramNotifierService = telegramNotifierService;
+        this.facebookPageNotifierService = facebookPageNotifierService;
     }
 
     public List<ExamSyllabusSummaryDto> getAllSummaries() {
@@ -64,6 +67,11 @@ public class ExamSyllabusService {
         } catch (Exception ignored) {
             // Notification failure should not break write flow.
         }
+        try {
+            facebookPageNotifierService.sendExamSyllabusUpdate(saved, false);
+        } catch (Exception ignored) {
+            // Notification failure should not break write flow.
+        }
         return toDetail(saved);
     }
 
@@ -81,6 +89,11 @@ public class ExamSyllabusService {
         ExamSyllabus saved = examSyllabusRepository.save(row);
         try {
             telegramNotifierService.sendExamSyllabusUpdate(saved, true);
+        } catch (Exception ignored) {
+            // Notification failure should not break write flow.
+        }
+        try {
+            facebookPageNotifierService.sendExamSyllabusUpdate(saved, true);
         } catch (Exception ignored) {
             // Notification failure should not break write flow.
         }

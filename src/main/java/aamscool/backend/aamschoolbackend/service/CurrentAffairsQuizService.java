@@ -77,6 +77,9 @@ public class CurrentAffairsQuizService {
     private TelegramNotifierService telegramNotifierService;
 
     @Autowired
+    private FacebookPageNotifierService facebookPageNotifierService;
+
+    @Autowired
     private UserAccountService userAccountService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -243,6 +246,11 @@ public class CurrentAffairsQuizService {
             telegramNotifierService.sendCurrentAffairsQuizUpdate(saved);
         } catch (Exception ex) {
             log.error("Telegram notification failed for quizId={}", saved.getQuizId(), ex);
+        }
+        try {
+            facebookPageNotifierService.sendCurrentAffairsQuizUpdate(saved);
+        } catch (Exception ex) {
+            log.error("Facebook notification failed for quizId={}", saved.getQuizId(), ex);
         }
         return saved;
     }

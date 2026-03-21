@@ -29,6 +29,9 @@ public class JobsService {
     @Autowired
     TelegramNotifierService telegramNotifierService;
 
+    @Autowired
+    FacebookPageNotifierService facebookPageNotifierService;
+
     private static final Logger log = LoggerFactory.getLogger(JobsService.class);
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -152,6 +155,11 @@ public class JobsService {
                     telegramNotifierService.sendJobUpdate(saved);
                 } catch (Exception ex) {
                     log.error("Telegram notification failed for jobId={}", saved.getJobId(), ex);
+                }
+                try {
+                    facebookPageNotifierService.sendJobUpdate(saved);
+                } catch (Exception ex) {
+                    log.error("Facebook notification failed for jobId={}", saved.getJobId(), ex);
                 }
 
                 return saved;
