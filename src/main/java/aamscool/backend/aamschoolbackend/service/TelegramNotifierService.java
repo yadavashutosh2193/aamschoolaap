@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import aamscool.backend.aamschoolbackend.model.CurrentAffairsQuiz;
+import aamscool.backend.aamschoolbackend.model.ExamSyllabus;
 import aamscool.backend.aamschoolbackend.model.JobMaster;
 import aamscool.backend.aamschoolbackend.model.JobPosts;
 import okhttp3.MediaType;
@@ -90,6 +91,30 @@ public class TelegramNotifierService {
         }, TELEGRAM_DELAY_MINUTES, TimeUnit.MINUTES);
     }
 
+    public void sendExamSyllabusUpdate(ExamSyllabus syllabus, boolean updated) {
+        if (BOT_TOKEN.isBlank() || CHAT_ID.isBlank()) {
+            log.info("Telegram config missing. Skipping syllabus notify for syllabusId={}", syllabus.getId());
+            return;
+        }
+
+        scheduler.schedule(() -> {
+            try {
+                String syllabusLink = buildSyllabusPageLink(syllabus);
+                String title = defaultString(syllabus.getExamName(), "Exam Syllabus");
+                String code = defaultString(syllabus.getExamCode(), "");
+                String codeLine = code.isBlank() ? "" : "Exam Code: " + code + "\n";
+                String header = updated ? "Syllabus Updated" : "New Syllabus Added";
+                String message = header + "\n\n"
+                        + "Title: " + title + "\n"
+                        + codeLine
+                        + "View Syllabus: " + syllabusLink;
+                sendTelegramMessage(message, "View Syllabus", syllabusLink);
+            } catch (Exception ex) {
+                log.error("Telegram syllabus send failed for syllabusId={}", syllabus.getId(), ex);
+            }
+        }, TELEGRAM_DELAY_MINUTES, TimeUnit.MINUTES);
+    }
+
     @PreDestroy
     public void shutdownScheduler() {
         scheduler.shutdown();
@@ -110,6 +135,15 @@ public class TelegramNotifierService {
 
     private String buildQuizPageLink(CurrentAffairsQuiz quiz) {
         return DAILY_QUIZ_URL;
+    }
+
+    private String buildSyllabusPageLink(ExamSyllabus syllabus) {
+        String slug = buildSyllabusSlug(syllabus.getExamName());
+        return trimTrailingSlash(PUBLIC_BASE_URL) + "/syllabus/" + slug + "-" + syllabus.getId();
+    }
+
+    private String buildSyllabusSlug(String examName) {
+        return slugify(examName) + "-syllabus";
     }
 
     private String buildSectionMessage(JobPosts job, String postPageLink) {
