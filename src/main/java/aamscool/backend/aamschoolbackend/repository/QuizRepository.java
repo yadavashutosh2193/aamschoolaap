@@ -38,4 +38,15 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
             order by q.createdAt asc
             """)
     List<Quiz> findBySubject(@Param("subject") String subject);
+
+    @Query("""
+            select distinct q.subject, q.topic
+            from Quiz q
+            where q.subject is not null
+              and trim(q.subject) <> ''
+              and q.topic is not null
+              and trim(q.topic) <> ''
+            order by q.subject asc, q.topic asc
+            """)
+    List<Object[]> findDistinctSubjectTopicPairs();
 }

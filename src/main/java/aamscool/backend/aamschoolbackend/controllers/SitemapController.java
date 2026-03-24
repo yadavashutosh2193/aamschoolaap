@@ -1,6 +1,10 @@
 package aamscool.backend.aamschoolbackend.controllers;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -8,12 +12,15 @@ import org.springframework.web.bind.annotation.RestController;
 
 import aamscool.backend.aamschoolbackend.model.HomePageLinksModel;
 import aamscool.backend.aamschoolbackend.repository.JobsRepository;
+import aamscool.backend.aamschoolbackend.repository.QuizRepository;
 
 @RestController
 public class SitemapController {
 
     @Autowired
     JobsRepository jobDao;
+    @Autowired
+    QuizRepository quizRepository;
 
     @GetMapping(value = "/sitemap.xml", produces = "application/xml")
     public String generateSitemap() {
@@ -44,6 +51,9 @@ public class SitemapController {
         addStaticUrl(xml, baseUrl + "/answer-key", "daily", "0.8");
         addStaticUrl(xml, baseUrl + "/syllabus", "daily", "0.8");
         addStaticUrl(xml, baseUrl + "/admission", "daily", "0.8");
+        addStaticUrl(xml, baseUrl + "/quiz-zone", "daily", "0.8");
+        addStaticUrl(xml, baseUrl + "/daily-current-affairs-quiz", "daily", "0.8");
+        addTopicQuizListingUrls(xml, baseUrl);
 
         // ⭐ Job detail pages
         for (HomePageLinksModel job : jobs) {
@@ -83,6 +93,42 @@ public class SitemapController {
         xml.append("<changefreq>").append(freq).append("</changefreq>");
         xml.append("<priority>").append(priority).append("</priority>");
         xml.append("</url>");
+    }
+
+    private void addTopicQuizListingUrls(StringBuilder xml, String baseUrl) {
+        List<Object[]> subjectTopicPairs = quizRepository.findDistinctSubjectTopicPairs();
+        if (subjectTopicPairs == null || subjectTopicPairs.isEmpty()) {
+            return;
+        }
+        Set<String> emittedUrls = new LinkedHashSet<>();
+        for (Object[] pair : subjectTopicPairs) {
+            if (pair == null || pair.length < 2) {
+                continue;
+            }
+            String subject = pair[0] == null ? "" : pair[0].toString().trim();
+            String topic = pair[1] == null ? "" : pair[1].toString().trim();
+            if (subject.isBlank() || topic.isBlank()) {
+                continue;
+            }
+            String encodedSubject = encodePathComponent(subject);
+            String encodedTopic = encodePathComponent(topic);
+            String url = baseUrl + "/quiz-zone/" + encodedSubject + "/" + encodedTopic + "/quizzes";
+            if (emittedUrls.add(url)) {
+                addStaticUrl(xml, url, "daily", "0.8");
+            }
+        }
+    }
+
+    // Mirrors frontend encodeURIComponent behavior used in route builders.
+    private String encodePathComponent(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8)
+                .replace("+", "%20")
+                .replace("%21", "!")
+                .replace("%27", "'")
+                .replace("%28", "(")
+                .replace("%29", ")")
+                .replace("%7E", "~")
+                .replace("%2A", "*");
     }
 
     // slug generator
