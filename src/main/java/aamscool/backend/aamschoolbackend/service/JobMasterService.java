@@ -1,9 +1,11 @@
 package aamscool.backend.aamschoolbackend.service;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -27,6 +29,13 @@ import aamscool.backend.aamschoolbackend.util.LabelUtil;
 @Service
 public class JobMasterService {
     private static final Pattern DIGIT_PATTERN = Pattern.compile("(\\d[\\d,]*)");
+    private static final List<DateTimeFormatter> DATE_FORMATTERS = List.of(
+            DateTimeFormatter.ISO_LOCAL_DATE,
+            DateTimeFormatter.ofPattern("d/M/uuuu"),
+            DateTimeFormatter.ofPattern("d-M-uuuu"),
+            DateTimeFormatter.ofPattern("d MMM uuuu", Locale.ENGLISH),
+            DateTimeFormatter.ofPattern("d MMMM uuuu", Locale.ENGLISH)
+    );
     private static final Set<String> LABELS_REQUIRING_POST_COUNT = Set.of(
             "latest-jobs",
             "admit-cards",
@@ -132,6 +141,11 @@ public class JobMasterService {
         dto.setAdvertisementNo(row.getAdvertisementNo());
         dto.setPostName(row.getPostName());
         dto.setConductingBody(row.getConductingBody());
+        dto.setDatePosted(row.getDatePosted() != null ? row.getDatePosted().toString()
+                : (row.getCreatedAt() != null ? row.getCreatedAt().toString() : null));
+        dto.setDateUpdated(row.getDateUpdated() != null ? row.getDateUpdated().toString()
+                : (row.getUpdatedAt() != null ? row.getUpdatedAt().toString() : null));
+        dto.setJobLocation(parseObjectMap(row.getJobLocation()));
         dto.setPayScale(row.getPayScale());
 
         dto.setImportantDates(parseStringMap(row.getImportantDates()));
@@ -173,6 +187,15 @@ public class JobMasterService {
         row.setAdvertisementNo(safe(dto.getAdvertisementNo()));
         row.setPostName(safe(dto.getPostName()));
         row.setConductingBody(safe(dto.getConductingBody()));
+        LocalDate parsedPostedDate = parseLocalDate(dto.getDatePosted());
+        if (parsedPostedDate != null) {
+            row.setDatePosted(parsedPostedDate);
+        } else if (row.getDatePosted() == null) {
+            row.setDatePosted(row.getCreatedAt());
+        }
+        LocalDate parsedUpdatedDate = parseLocalDate(dto.getDateUpdated());
+        row.setDateUpdated(parsedUpdatedDate != null ? parsedUpdatedDate : row.getUpdatedAt());
+        row.setJobLocation(writeJson(dto.getJobLocation()));
         row.setPayScale(safe(dto.getPayScale()));
 
         row.setImportantDates(writeJson(dto.getImportantDates()));
@@ -235,6 +258,21 @@ public class JobMasterService {
 
     private String safe(String value) {
         return value == null ? null : value.trim();
+    }
+
+    private LocalDate parseLocalDate(String value) {
+        String text = safe(value);
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        for (DateTimeFormatter formatter : DATE_FORMATTERS) {
+            try {
+                return LocalDate.parse(text, formatter);
+            } catch (Exception ignored) {
+                // try next format
+            }
+        }
+        return null;
     }
 
     private String buildTitleWithPostCount(String title, String vacancyDetailsJson) {

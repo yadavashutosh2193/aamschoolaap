@@ -43,6 +43,16 @@ public class JobMaster {
     @Column(name = "conducting_body", columnDefinition = "LONGTEXT")
     private String conductingBody;
 
+    @Column(name = "date_posted")
+    private LocalDate datePosted;
+
+    @Column(name = "date_updated")
+    private LocalDate dateUpdated;
+
+    @Lob
+    @Column(name = "job_location", columnDefinition = "JSON")
+    private String jobLocation;
+
     @Lob
     @Column(name = "pay_scale", columnDefinition = "LONGTEXT")
     private String payScale;
@@ -159,6 +169,30 @@ public class JobMaster {
 
     public void setConductingBody(String conductingBody) {
         this.conductingBody = conductingBody;
+    }
+
+    public LocalDate getDatePosted() {
+        return datePosted;
+    }
+
+    public void setDatePosted(LocalDate datePosted) {
+        this.datePosted = datePosted;
+    }
+
+    public LocalDate getDateUpdated() {
+        return dateUpdated;
+    }
+
+    public void setDateUpdated(LocalDate dateUpdated) {
+        this.dateUpdated = dateUpdated;
+    }
+
+    public String getJobLocation() {
+        return jobLocation;
+    }
+
+    public void setJobLocation(String jobLocation) {
+        this.jobLocation = jobLocation;
     }
 
     public String getPayScale() {

@@ -273,6 +273,14 @@ Output schema (snake_case):
   "advertisement_no": "",
   "post_name": "",
   "conducting_body": "",
+  "date_posted": "",
+  "date_updated": "",
+  "job_location": {
+    "country": "",
+    "states": [],
+    "city": "",
+    "location_text": ""
+  },
   "important_dates": {
     "notification_date": "",
     "online_apply_start_date": "",

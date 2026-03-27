@@ -28,6 +28,12 @@ public class MasterJobResponseDto {
     private String postName;
     @JsonAlias("conductingBody")
     private String conductingBody;
+    @JsonAlias("datePosted")
+    private String datePosted;
+    @JsonAlias("dateUpdated")
+    private String dateUpdated;
+    @JsonAlias("jobLocation")
+    private Map<String, Object> jobLocation;
     @JsonAlias("importantDates")
     private Map<String, String> importantDates;
     @JsonAlias("applicationFee")
@@ -61,6 +67,9 @@ public class MasterJobResponseDto {
         this.advertisementNo = null;
         this.postName = null;
         this.conductingBody = null;
+        this.datePosted = null;
+        this.dateUpdated = null;
+        this.jobLocation = new LinkedHashMap<>();
         this.importantDates = new LinkedHashMap<>();
         this.applicationFee = new ApplicationFeeDto();
         this.eligibilityCriteria = new EligibilityCriteriaDto();
@@ -114,6 +123,34 @@ public class MasterJobResponseDto {
 
     public void setConductingBody(String conductingBody) {
         this.conductingBody = conductingBody;
+    }
+
+    public String getDatePosted() {
+        return datePosted;
+    }
+
+    public void setDatePosted(String datePosted) {
+        this.datePosted = datePosted;
+    }
+
+    public String getDateUpdated() {
+        return dateUpdated;
+    }
+
+    public void setDateUpdated(String dateUpdated) {
+        this.dateUpdated = dateUpdated;
+    }
+
+    public Map<String, Object> getJobLocation() {
+        return jobLocation;
+    }
+
+    public void setJobLocation(Map<String, ?> jobLocation) {
+        this.jobLocation = new LinkedHashMap<>();
+        if (jobLocation == null || jobLocation.isEmpty()) {
+            return;
+        }
+        this.jobLocation.putAll(jobLocation);
     }
 
     public Map<String, String> getImportantDates() {

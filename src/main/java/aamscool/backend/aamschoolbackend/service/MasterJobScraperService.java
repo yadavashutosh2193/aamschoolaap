@@ -1,6 +1,7 @@
 package aamscool.backend.aamschoolbackend.service;
 
 import java.io.IOException;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -86,6 +87,7 @@ public class MasterJobScraperService {
         fillAdvertisementNo(textLines, kvLines, dto);
         fillPostAndBody(dto, textLines, kvLines);
         fillImportantDates(main, kvLines, textLines, dto);
+        fillPostedUpdatedAndLocation(kvLines, textLines, dto);
         fillApplicationFee(main, kvLines, textLines, dto);
         fillEligibility(main, kvLines, textLines, dto);
         fillVacancy(main, kvLines, textLines, dto);
@@ -173,6 +175,71 @@ public class MasterJobScraperService {
                 .trim();
         dto.setPostName(cleaned.isBlank() ? null : cleaned);
         dto.setConductingBody(extractConductingBody(title, lines, kvLines));
+    }
+
+    private void fillPostedUpdatedAndLocation(Map<String, String> kvLines, List<String> lines, MasterJobResponseDto dto) {
+        String posted = dto.getDatePosted();
+        if (!hasText(posted)) {
+            for (Map.Entry<String, String> entry : kvLines.entrySet()) {
+                String key = lower(entry.getKey());
+                String value = clean(entry.getValue());
+                if (!containsAny(key, "posted", "post date", "date posted", "published", "notification date")) {
+                    continue;
+                }
+                if (looksLikeDateValue(value)) {
+                    posted = value;
+                    break;
+                }
+            }
+        }
+        if (!hasText(posted)) {
+            posted = getImportantDateString(dto, "notification date", "posted on", "post date", "date posted");
+        }
+        String today = LocalDate.now().toString();
+        dto.setDateUpdated(hasText(dto.getDateUpdated()) ? dto.getDateUpdated() : today);
+        dto.setDatePosted(hasText(posted) ? posted : dto.getDateUpdated());
+
+        Map<String, Object> location = new LinkedHashMap<>();
+        if (dto.getJobLocation() != null && !dto.getJobLocation().isEmpty()) {
+            location.putAll(dto.getJobLocation());
+        }
+
+        String locationText = null;
+        for (Map.Entry<String, String> entry : kvLines.entrySet()) {
+            String key = lower(entry.getKey());
+            if (!containsAny(key, "location", "job location", "posting place", "place of posting", "work location")) {
+                continue;
+            }
+            String value = clean(entry.getValue());
+            if (!value.isBlank()) {
+                locationText = value;
+                break;
+            }
+        }
+
+        if (!hasText(locationText)) {
+            for (String line : lines) {
+                String l = lower(line);
+                if (containsAny(l, "all india", "across india", "pan india", "multiple locations")) {
+                    locationText = "All India";
+                    break;
+                }
+            }
+        }
+
+        if (hasText(locationText)) {
+            location.put("location_text", locationText);
+            String normalized = lower(locationText);
+            if (containsAny(normalized, "all india", "across india", "pan india", "multiple locations")) {
+                location.putIfAbsent("country", "India");
+                location.putIfAbsent("states", List.of("All India"));
+                location.putIfAbsent("city", "Multiple");
+            }
+        }
+
+        if (!location.isEmpty()) {
+            dto.setJobLocation(location);
+        }
     }
 
     private void fillImportantDates(Element main, Map<String, String> kvLines, List<String> lines, MasterJobResponseDto dto) {
@@ -3190,6 +3257,9 @@ public class MasterJobScraperService {
         if (hasText(source.getAdvertisementNo())) target.setAdvertisementNo(clean(source.getAdvertisementNo()));
         if (hasText(source.getPostName())) target.setPostName(clean(source.getPostName()));
         if (hasText(source.getConductingBody())) target.setConductingBody(clean(source.getConductingBody()));
+        if (hasText(source.getDatePosted())) target.setDatePosted(clean(source.getDatePosted()));
+        if (hasText(source.getDateUpdated())) target.setDateUpdated(clean(source.getDateUpdated()));
+        if (hasObjectMapContent(source.getJobLocation())) target.setJobLocation(source.getJobLocation());
         if (hasText(source.getPayScale())) target.setPayScale(clean(source.getPayScale()));
 
         if (hasStringMapContent(source.getImportantDates())) target.setImportantDates(source.getImportantDates());
