@@ -6,28 +6,42 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import aamscool.backend.aamschoolbackend.dto.MasterJobResponseDto;
 import aamscool.backend.aamschoolbackend.model.HomePageLinksModel;
 import aamscool.backend.aamschoolbackend.model.JobMaster;
+import aamscool.backend.aamschoolbackend.model.ScrapeCache;
 import aamscool.backend.aamschoolbackend.repository.JobMasterRepository;
 import aamscool.backend.aamschoolbackend.util.LabelUtil;
 
 @Service
 public class JobMasterService {
+    private static final Pattern DIGIT_PATTERN = Pattern.compile("(\\d[\\d,]*)");
+    private static final Set<String> LABELS_REQUIRING_POST_COUNT = Set.of(
+            "latest-jobs",
+            "admit-cards",
+            "latest-results",
+            "answer-keys"
+    );
 
     private final JobMasterRepository jobMasterRepository;
     private final ObjectMapper objectMapper;
+    private final ScrapeCache cache;
 
-    public JobMasterService(JobMasterRepository jobMasterRepository, ObjectMapper objectMapper) {
+    public JobMasterService(JobMasterRepository jobMasterRepository, ObjectMapper objectMapper, ScrapeCache cache) {
         this.jobMasterRepository = jobMasterRepository;
         this.objectMapper = objectMapper;
+        this.cache = cache;
     }
 
     @Transactional
@@ -40,8 +54,11 @@ public class JobMasterService {
         Optional<JobMaster> existing =
                 (source == null || source.isBlank()) ? Optional.empty() : jobMasterRepository.findBySource(source);
         JobMaster row = existing.orElseGet(JobMaster::new);
+        String previousLabel = row.getLabel();
         applyDto(row, dto, label);
-        return jobMasterRepository.save(row);
+        JobMaster saved = jobMasterRepository.save(row);
+        refreshCachesAfterWrite(saved, previousLabel);
+        return saved;
     }
 
     @Transactional
@@ -51,7 +68,9 @@ public class JobMasterService {
         }
         JobMaster row = new JobMaster();
         applyDto(row, dto, label);
-        return jobMasterRepository.save(row);
+        JobMaster saved = jobMasterRepository.save(row);
+        refreshCachesAfterWrite(saved, null);
+        return saved;
     }
 
     @Transactional
@@ -65,13 +84,18 @@ public class JobMasterService {
         }
 
         JobMaster row = existing.get();
+        String previousLabel = row.getLabel();
         applyDto(row, dto, label);
-        return Optional.of(jobMasterRepository.save(row));
+        JobMaster saved = jobMasterRepository.save(row);
+        refreshCachesAfterWrite(saved, previousLabel);
+        return Optional.of(saved);
     }
 
     public List<HomePageLinksModel> getLatestByLabel(String label) {
         List<HomePageLinksModel> out = new ArrayList<>();
         String requestedLabel = safe(label);
+        String normalizedRequestedLabel = LabelUtil.normalizeCategoryLabel(requestedLabel);
+        boolean enrichTitleWithPostCount = LABELS_REQUIRING_POST_COUNT.contains(normalizedRequestedLabel);
         List<JobMaster> rows = new ArrayList<>();
         for (String candidate : LabelUtil.buildLabelLookupCandidates(requestedLabel)) {
             if (candidate == null || candidate.isBlank()) {
@@ -85,7 +109,9 @@ public class JobMasterService {
 
         for (JobMaster row : rows) {
             out.add(new HomePageLinksModel(
-                    safe(row.getTitle()),
+                    enrichTitleWithPostCount
+                            ? buildTitleWithPostCount(safe(row.getTitle()), row.getVacancyDetails())
+                            : safe(row.getTitle()),
                     row.getId(),
                     row.getUpdatedAt() != null ? row.getUpdatedAt() : row.getCreatedAt(),
                     parseStringMap(row.getImportantDates())
@@ -209,5 +235,91 @@ public class JobMasterService {
 
     private String safe(String value) {
         return value == null ? null : value.trim();
+    }
+
+    private String buildTitleWithPostCount(String title, String vacancyDetailsJson) {
+        if (title == null || title.isBlank()) {
+            return title;
+        }
+        if (containsPostCount(title)) {
+            return title;
+        }
+
+        String totalVacancy = extractTotalVacancy(vacancyDetailsJson);
+        if (totalVacancy == null || totalVacancy.isBlank()) {
+            return title;
+        }
+        return title + " (" + totalVacancy + " Posts)";
+    }
+
+    private boolean containsPostCount(String title) {
+        if (title == null || title.isBlank()) {
+            return false;
+        }
+        String lower = title.toLowerCase();
+        return lower.matches(".*\\b\\d[\\d,]*\\s*\\+?\\s*(post|posts|vacancy|vacancies)\\b.*");
+    }
+
+    private String extractTotalVacancy(String vacancyDetailsJson) {
+        if (vacancyDetailsJson == null || vacancyDetailsJson.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(vacancyDetailsJson);
+            for (String path : List.of("totalVacancy", "total_vacancy")) {
+                String value = textAtPath(root, path);
+                String normalized = normalizeVacancyCount(value);
+                if (normalized != null) {
+                    return normalized;
+                }
+            }
+        } catch (Exception ignored) {
+            // Keep latest-jobs API resilient even if one row has malformed vacancy_details JSON.
+        }
+        return null;
+    }
+
+    private String textAtPath(JsonNode root, String dottedPath) {
+        JsonNode current = root;
+        for (String part : dottedPath.split("\\.")) {
+            if (current == null || current.isMissingNode() || current.isNull()) {
+                return null;
+            }
+            current = current.path(part);
+        }
+        if (current == null || current.isMissingNode() || current.isNull()) {
+            return null;
+        }
+        return current.isValueNode() ? current.asText() : current.toString();
+    }
+
+    private String normalizeVacancyCount(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String text = raw.trim();
+        if (text.isBlank()) {
+            return null;
+        }
+        Matcher matcher = DIGIT_PATTERN.matcher(text);
+        if (!matcher.find()) {
+            return null;
+        }
+        String digits = matcher.group(1).replace(",", "");
+        if (digits.isBlank()) {
+            return null;
+        }
+        return digits;
+    }
+
+    private void refreshCachesAfterWrite(JobMaster saved, String previousLabel) {
+        if (saved == null) {
+            return;
+        }
+        if (previousLabel != null && !previousLabel.isBlank()) {
+            cache.invalidateMasterJobsLabel(previousLabel);
+        }
+        cache.invalidateMasterJobsLabel(saved.getLabel());
+        cache.putMasterJob(saved.getId(), toDto(saved));
     }
 }

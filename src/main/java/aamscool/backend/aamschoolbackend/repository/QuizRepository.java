@@ -49,4 +49,12 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
             order by q.subject asc, q.topic asc
             """)
     List<Object[]> findDistinctSubjectTopicPairs();
+
+    long countByCreatedByAndExamId(String createdBy, Long examId);
+
+    List<Quiz> findByCreatedByAndExamIdOrderByCreatedAtAsc(String createdBy, Long examId);
+
+    long countByCreatedByAndSubjectAndTopic(String createdBy, String subject, String topic);
+
+    List<Quiz> findByCreatedByAndSubjectAndTopicOrderByCreatedAtAsc(String createdBy, String subject, String topic);
 }

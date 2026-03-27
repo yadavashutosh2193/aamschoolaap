@@ -22,6 +22,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import aamscool.backend.aamschoolbackend.dto.MasterJobResponseDto;
 import aamscool.backend.aamschoolbackend.model.HomePageLinksModel;
 import aamscool.backend.aamschoolbackend.model.JobMaster;
+import aamscool.backend.aamschoolbackend.model.ScrapeCache;
 import aamscool.backend.aamschoolbackend.service.MasterJobAutoScraperService;
 import aamscool.backend.aamschoolbackend.service.JobMasterService;
 import aamscool.backend.aamschoolbackend.service.MasterJobScraperService;
@@ -37,19 +38,22 @@ public class MasterJobScraperController {
     private final OpenAIService openAIService;
     private final ObjectMapper objectMapper;
     private final MasterJobScheduler masterJobScheduler;
+    private final ScrapeCache scrapeCache;
 
     public MasterJobScraperController(MasterJobScraperService masterJobScraperService,
                                       MasterJobAutoScraperService masterJobAutoScraperService,
                                       JobMasterService jobMasterService,
                                       OpenAIService openAIService,
                                       ObjectMapper objectMapper,
-                                      MasterJobScheduler masterJobScheduler) {
+                                      MasterJobScheduler masterJobScheduler,
+                                      ScrapeCache scrapeCache) {
         this.masterJobScraperService = masterJobScraperService;
         this.masterJobAutoScraperService = masterJobAutoScraperService;
         this.jobMasterService = jobMasterService;
         this.openAIService = openAIService;
         this.objectMapper = objectMapper;
         this.masterJobScheduler = masterJobScheduler;
+        this.scrapeCache = scrapeCache;
     }
 
     @GetMapping("/scrape")
@@ -159,7 +163,13 @@ public class MasterJobScraperController {
 
     @GetMapping("/latest/{label}")
     public ResponseEntity<List<HomePageLinksModel>> latestByLabel(@PathVariable String label) {
-        return ResponseEntity.ok(jobMasterService.getLatestByLabel(label));
+        String cacheKey = scrapeCache.normalizeLabelKey(label);
+        String requestedLabel = label;
+        List<HomePageLinksModel> cached = ScrapeCache.masterDataCache.get(
+                cacheKey,
+                key -> jobMasterService.getLatestByLabel(requestedLabel)
+        );
+        return ResponseEntity.ok(cached);
     }
 
     @GetMapping("/job/{slugWithId}")
@@ -171,15 +181,31 @@ public class MasterJobScraperController {
                     "message", "Invalid slugWithId"
             ));
         }
+        MasterJobResponseDto cached = ScrapeCache.masterJsondata.getIfPresent(id);
+        if (cached != null) {
+            return ResponseEntity.ok(cached);
+        }
+
         return jobMasterService.getById(id)
-                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .<ResponseEntity<?>>map(dto -> {
+                    ScrapeCache.masterJsondata.put(id, dto);
+                    return ResponseEntity.ok(dto);
+                })
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @GetMapping("/jobbyid/{id}")
     public ResponseEntity<?> jobById(@PathVariable long id) {
+        MasterJobResponseDto cached = ScrapeCache.masterJsondata.getIfPresent(id);
+        if (cached != null) {
+            return ResponseEntity.ok(cached);
+        }
+
         return jobMasterService.getById(id)
-                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .<ResponseEntity<?>>map(dto -> {
+                    ScrapeCache.masterJsondata.put(id, dto);
+                    return ResponseEntity.ok(dto);
+                })
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 

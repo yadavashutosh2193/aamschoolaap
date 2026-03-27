@@ -14,4 +14,6 @@ public interface ExamSyllabusRepository extends JpaRepository<ExamSyllabus, Long
     List<ExamSyllabus> findAllByOrderByUpdatedAtDesc();
 
     Optional<ExamSyllabus> findByExamCodeIgnoreCase(String examCode);
+
+    Optional<ExamSyllabus> findFirstByExamNameIgnoreCaseOrderByUpdatedAtDesc(String examName);
 }

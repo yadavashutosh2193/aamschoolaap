@@ -17,16 +17,21 @@ import org.springframework.web.bind.annotation.RestController;
 import aamscool.backend.aamschoolbackend.dto.ExamSyllabusDetailDto;
 import aamscool.backend.aamschoolbackend.dto.ExamSyllabusMasterDto;
 import aamscool.backend.aamschoolbackend.dto.ExamSyllabusSummaryDto;
+import aamscool.backend.aamschoolbackend.dto.ExamTestSeriesOverviewDto;
 import aamscool.backend.aamschoolbackend.service.ExamSyllabusService;
+import aamscool.backend.aamschoolbackend.service.ExamTestSeriesService;
 
 @RestController
 @RequestMapping("/api/syllabus")
 public class ExamSyllabusController {
 
     private final ExamSyllabusService examSyllabusService;
+    private final ExamTestSeriesService examTestSeriesService;
 
-    public ExamSyllabusController(ExamSyllabusService examSyllabusService) {
+    public ExamSyllabusController(ExamSyllabusService examSyllabusService,
+                                  ExamTestSeriesService examTestSeriesService) {
         this.examSyllabusService = examSyllabusService;
+        this.examTestSeriesService = examTestSeriesService;
     }
 
     @GetMapping("/latest")
@@ -54,6 +59,26 @@ public class ExamSyllabusController {
                 )));
     }
 
+    @GetMapping("/exam/{examKey}")
+    public ResponseEntity<?> getByExamKey(@PathVariable("examKey") String examKey) {
+        return examSyllabusService.getByExamKey(examKey)
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                        "status", "error",
+                        "message", "Syllabus not found for exam key"
+                )));
+    }
+
+    @GetMapping("/exam/{examKey}/test-series-blueprint")
+    public ResponseEntity<?> getTestSeriesBlueprint(@PathVariable("examKey") String examKey) {
+        return examSyllabusService.getTestSeriesBlueprintByExamKey(examKey)
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                        "status", "error",
+                        "message", "Syllabus not found for exam key"
+                )));
+    }
+
     @GetMapping("/admin")
     public List<ExamSyllabusSummaryDto> adminList() {
         return examSyllabusService.getAllSummaries();
@@ -66,6 +91,31 @@ public class ExamSyllabusController {
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                         "status", "error",
                         "message", "Syllabus not found"
+                )));
+    }
+
+    @GetMapping("/admin/test-series/overview")
+    public List<ExamTestSeriesOverviewDto> adminTestSeriesOverview() {
+        return examTestSeriesService.getOverviewForAllExams();
+    }
+
+    @GetMapping("/admin/test-series/overview/{examKey}")
+    public ResponseEntity<?> adminTestSeriesOverviewByExam(@PathVariable("examKey") String examKey) {
+        return examTestSeriesService.getOverviewByExamKey(examKey)
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                        "status", "error",
+                        "message", "Syllabus not found for exam key"
+                )));
+    }
+
+    @PostMapping("/admin/test-series/generate/{examKey}")
+    public ResponseEntity<?> adminGenerateTestSeriesByExam(@PathVariable("examKey") String examKey) {
+        return examTestSeriesService.generateAllPossibleByExamKey(examKey)
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                        "status", "error",
+                        "message", "Syllabus not found for exam key"
                 )));
     }
 

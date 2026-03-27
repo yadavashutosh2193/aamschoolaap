@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,15 +22,21 @@ import aamscool.backend.aamschoolbackend.service.JobsService;
 @RequestMapping("/api/jobs")
 public class JobsController {
 
-    @Autowired
-    JobsService jobsService;
+    private final JobsService jobsService;
+    private final ScrapeCache scrapeCache;
+
+    public JobsController(JobsService jobsService, ScrapeCache scrapeCache) {
+        this.jobsService = jobsService;
+        this.scrapeCache = scrapeCache;
+    }
 
     @GetMapping("/latestjobs/{label}")
     public List<HomePageLinksModel> getLatestJob(@PathVariable("label") String label) {
+        String cacheKey = scrapeCache.normalizeLabelKey(label);
+        String requestedLabel = label;
         List<HomePageLinksModel> jobs = new ArrayList<HomePageLinksModel>();
-
-        jobs = ScrapeCache.dataCache.get(label,
-                key -> Optional.ofNullable(jobsService.getLatestJob(key)).orElse(Collections.emptyList()));
+        jobs = ScrapeCache.dataCache.get(cacheKey,
+                key -> Optional.ofNullable(jobsService.getLatestJob(requestedLabel)).orElse(Collections.emptyList()));
 
         return jobs;
     }
@@ -75,7 +80,6 @@ public class JobsController {
         if (!deleted) {
             return ResponseEntity.notFound().build();
         }
-        ScrapeCache.jsondata.invalidate(id);
         return ResponseEntity.ok(Map.of(
                 "status", "success",
                 "message", "Job deleted"

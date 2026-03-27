@@ -44,6 +44,9 @@ public class CurrentAffairsQuizController {
     @Autowired
     private UserAccountService userAccountService;
 
+    @Autowired
+    private CurrentAffairsQuizScheduler currentAffairsQuizScheduler;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private static final ZoneId INDIA_TIMEZONE = ZoneId.of("Asia/Kolkata");
 
@@ -91,6 +94,40 @@ public class CurrentAffairsQuizController {
                     "error", ex.getMessage()
             ));
         }
+    }
+
+    @GetMapping("/admin/scheduler/status")
+    public ResponseEntity<?> getSchedulerStatus(Authentication authentication) {
+        if (!hasRole(authentication, "ROLE_ADMIN")) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", "Admin access required"));
+        }
+        return ResponseEntity.ok(Map.of(
+                "schedulerEnabled", currentAffairsQuizScheduler.isSchedulerEnabled()
+        ));
+    }
+
+    @PostMapping("/admin/scheduler/enable")
+    public ResponseEntity<?> enableScheduler(Authentication authentication) {
+        if (!hasRole(authentication, "ROLE_ADMIN")) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", "Admin access required"));
+        }
+        boolean enabled = currentAffairsQuizScheduler.setSchedulerEnabled(true);
+        return ResponseEntity.ok(Map.of(
+                "schedulerEnabled", enabled,
+                "message", "Daily quiz scheduler enabled"
+        ));
+    }
+
+    @PostMapping("/admin/scheduler/disable")
+    public ResponseEntity<?> disableScheduler(Authentication authentication) {
+        if (!hasRole(authentication, "ROLE_ADMIN")) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", "Admin access required"));
+        }
+        boolean enabled = currentAffairsQuizScheduler.setSchedulerEnabled(false);
+        return ResponseEntity.ok(Map.of(
+                "schedulerEnabled", enabled,
+                "message", "Daily quiz scheduler disabled"
+        ));
     }
 
     @PostMapping

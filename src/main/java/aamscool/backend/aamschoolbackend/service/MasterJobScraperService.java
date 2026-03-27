@@ -3173,115 +3173,147 @@ public class MasterJobScraperService {
         try {
             String rawJson = objectMapper.writeValueAsString(dto);
             String enhancedJson = openAIService.refineMasterJobContent(rawJson);
-            JsonNode root = objectMapper.readTree(enhancedJson);
-
-            setIfText(root, "title", dto::setTitle);
-            setIfText(root, "short_description", dto::setShortDescription);
-            setIfText(root, "post_name", dto::setPostName);
-            setIfText(root, "conducting_body", dto::setConductingBody);
-            setIfText(root, "pay_scale", dto::setPayScale);
-
-            JsonNode eligibilityNode = root.path("eligibility_criteria");
-            if (eligibilityNode.isObject()) {
-                MasterJobResponseDto.EligibilityCriteriaDto aiEligibility =
-                        objectMapper.treeToValue(eligibilityNode, MasterJobResponseDto.EligibilityCriteriaDto.class);
-                mergeEligibility(dto.getEligibilityCriteria(), aiEligibility);
-            }
-
-            JsonNode vacancyNode = root.path("vacancy_details");
-            if (vacancyNode.isObject()) {
-                MasterJobResponseDto.VacancyDetailsDto aiVacancy =
-                        objectMapper.treeToValue(vacancyNode, MasterJobResponseDto.VacancyDetailsDto.class);
-                mergeVacancy(dto.getVacancyDetails(), aiVacancy);
-            }
-
-            List<String> ap = asStringList(root.path("application_process"));
-            if (!ap.isEmpty()) {
-                dto.setApplicationProcess(ap);
-            }
-            Map<String, Object> exam = asObjectMap(root.path("exam_scheme"));
-            if (!exam.isEmpty()) {
-                dto.setExamScheme(exam);
-            }
-            List<String> selection = asStringList(root.path("selection_process"));
-            if (!selection.isEmpty()) {
-                dto.setSelectionProcess(selection);
-            }
-            List<String> notes = asStringList(root.path("important_notes"));
-            if (!notes.isEmpty()) {
-                dto.setImportantNotes(notes);
-            }
-            List<String> syllabus = asStringList(root.path("syllabus_overview"));
-            if (!syllabus.isEmpty()) {
-                dto.setSyllabusOverview(syllabus);
-            }
-
-            JsonNode otherTablesNode = root.path("other_tables");
-            if (otherTablesNode.isObject()) {
-                Map<String, List<Map<String, String>>> aiOtherTables =
-                        objectMapper.convertValue(otherTablesNode, new TypeReference<Map<String, List<Map<String, String>>>>() {});
-                if (aiOtherTables != null && !aiOtherTables.isEmpty()) {
-                    dto.setOtherTables(aiOtherTables);
-                }
-            }
+            MasterJobResponseDto aiDto = objectMapper.readValue(enhancedJson, MasterJobResponseDto.class);
+            mergeEnhancedDto(dto, aiDto);
         } catch (Exception ignored) {
             // keep deterministic scraper output if AI call fails
         }
     }
 
-    private void mergeEligibility(MasterJobResponseDto.EligibilityCriteriaDto target,
-                                  MasterJobResponseDto.EligibilityCriteriaDto source) {
-        if (target == null || source == null) return;
-        if (source.getMinimumAge() != null && !source.getMinimumAge().isBlank()) target.setMinimumAge(clean(source.getMinimumAge()));
-        if (source.getMaximumAge() != null && !source.getMaximumAge().isBlank()) target.setMaximumAge(clean(source.getMaximumAge()));
-        if (source.getAgeAsOn() != null && !source.getAgeAsOn().isBlank()) target.setAgeAsOn(clean(source.getAgeAsOn()));
-        if (source.getQualification() != null && !source.getQualification().isBlank()) target.setQualification(clean(source.getQualification()));
-        if (source.getPostWiseQualification() != null && !source.getPostWiseQualification().isEmpty()) {
-            target.setPostWiseQualification(source.getPostWiseQualification());
+    private void mergeEnhancedDto(MasterJobResponseDto target, MasterJobResponseDto source) {
+        if (target == null || source == null) {
+            return;
         }
+
+        if (hasText(source.getTitle())) target.setTitle(clean(source.getTitle()));
+        if (hasText(source.getShortDescription())) target.setShortDescription(clean(source.getShortDescription()));
+        if (hasText(source.getAdvertisementNo())) target.setAdvertisementNo(clean(source.getAdvertisementNo()));
+        if (hasText(source.getPostName())) target.setPostName(clean(source.getPostName()));
+        if (hasText(source.getConductingBody())) target.setConductingBody(clean(source.getConductingBody()));
+        if (hasText(source.getPayScale())) target.setPayScale(clean(source.getPayScale()));
+
+        if (hasStringMapContent(source.getImportantDates())) target.setImportantDates(source.getImportantDates());
+        if (hasApplicationFeeContent(source.getApplicationFee())) target.setApplicationFee(source.getApplicationFee());
+        if (hasEligibilityContent(source.getEligibilityCriteria())) target.setEligibilityCriteria(source.getEligibilityCriteria());
+        if (hasVacancyContent(source.getVacancyDetails())) target.setVacancyDetails(source.getVacancyDetails());
+        if (hasStringListContent(source.getApplicationProcess())) target.setApplicationProcess(source.getApplicationProcess());
+        if (hasObjectMapContent(source.getExamScheme())) target.setExamScheme(source.getExamScheme());
+        if (hasStringListContent(source.getSelectionProcess())) target.setSelectionProcess(source.getSelectionProcess());
+        if (hasStringListContent(source.getImportantNotes())) target.setImportantNotes(source.getImportantNotes());
+        if (hasObjectMapContent(source.getOfficialLinks())) target.setOfficialLinks(source.getOfficialLinks());
+        if (hasStringListContent(source.getSyllabusOverview())) target.setSyllabusOverview(source.getSyllabusOverview());
+        if (hasOtherTablesContent(source.getOtherTables())) target.setOtherTables(source.getOtherTables());
     }
 
-    private void mergeVacancy(MasterJobResponseDto.VacancyDetailsDto target,
-                              MasterJobResponseDto.VacancyDetailsDto source) {
-        if (target == null || source == null) return;
-        if (source.getTotalVacancy() != null && !source.getTotalVacancy().isBlank()) target.setTotalVacancy(clean(source.getTotalVacancy()));
-        if (source.getPostWise() != null && !source.getPostWise().isEmpty()) target.setPostWise(source.getPostWise());
-        if (source.getCategoryWise() != null && !source.getCategoryWise().isEmpty()) target.setCategoryWise(source.getCategoryWise());
-        if (source.getTableRows() != null && !source.getTableRows().isEmpty()) target.setTableRows(source.getTableRows());
-    }
-
-    private void setIfText(JsonNode node, String field, java.util.function.Consumer<String> setter) {
-        JsonNode v = node.path(field);
-        if (v.isTextual()) {
-            String t = clean(v.asText());
-            if (!t.isBlank()) setter.accept(t);
+    private boolean hasApplicationFeeContent(MasterJobResponseDto.ApplicationFeeDto fee) {
+        if (fee == null) {
+            return false;
         }
+        if (hasText(fee.getGeneralObc())
+                || hasText(fee.getScStEbcFemaleTransgender())
+                || hasText(fee.getRefundGeneralObcAfterCbt())
+                || hasText(fee.getRefundScStEbcFemaleTransgenderAfterCbt())) {
+            return true;
+        }
+        return hasStringListContent(fee.getPaymentMode())
+                || (fee.getFeeDetail() != null && !fee.getFeeDetail().isEmpty())
+                || (fee.getExtraFields() != null && !fee.getExtraFields().isEmpty());
     }
 
-    private List<String> asStringList(JsonNode node) {
-        List<String> list = new ArrayList<>();
-        if (node == null || !node.isArray()) return list;
-        for (JsonNode item : node) {
-            if (item.isTextual()) {
-                String t = clean(item.asText());
-                if (!t.isBlank()) list.add(t);
+    private boolean hasEligibilityContent(MasterJobResponseDto.EligibilityCriteriaDto eligibility) {
+        if (eligibility == null) {
+            return false;
+        }
+        if (hasText(eligibility.getGender())
+                || hasText(eligibility.getMinimumAge())
+                || hasText(eligibility.getMaximumAge())
+                || hasText(eligibility.getAgeAsOn())
+                || hasText(eligibility.getQualification())
+                || hasText(eligibility.getResidencyRequirement())) {
+            return true;
+        }
+        return (eligibility.getPostWiseQualification() != null && !eligibility.getPostWiseQualification().isEmpty())
+                || (eligibility.getExtraFields() != null && !eligibility.getExtraFields().isEmpty());
+    }
+
+    private boolean hasVacancyContent(MasterJobResponseDto.VacancyDetailsDto vacancy) {
+        if (vacancy == null) {
+            return false;
+        }
+        if (hasText(vacancy.getTotalVacancy())) {
+            return true;
+        }
+        return (vacancy.getPostWise() != null && !vacancy.getPostWise().isEmpty())
+                || (vacancy.getCategoryWise() != null && !vacancy.getCategoryWise().isEmpty())
+                || (vacancy.getTableRows() != null && !vacancy.getTableRows().isEmpty())
+                || (vacancy.getExtraFields() != null && !vacancy.getExtraFields().isEmpty());
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private boolean hasStringListContent(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return false;
+        }
+        for (String value : values) {
+            if (hasText(value)) {
+                return true;
             }
         }
-        return list;
+        return false;
     }
 
-    private Map<String, Object> asObjectMap(JsonNode node) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        if (node == null || !node.isObject()) return map;
-        node.fields().forEachRemaining(e -> {
-            if (e.getValue() == null || e.getValue().isMissingNode() || e.getValue().isNull()) return;
-            String key = clean(e.getKey());
-            Object value = objectMapper.convertValue(e.getValue(), Object.class);
-            if (!key.isBlank() && value != null) {
-                map.put(key, value);
+    private boolean hasStringMapContent(Map<String, String> values) {
+        if (values == null || values.isEmpty()) {
+            return false;
+        }
+        for (Map.Entry<String, String> entry : values.entrySet()) {
+            if (hasText(entry.getKey()) && hasText(entry.getValue())) {
+                return true;
             }
-        });
-        return map;
+        }
+        return false;
+    }
+
+    private boolean hasObjectMapContent(Map<String, Object> values) {
+        if (values == null || values.isEmpty()) {
+            return false;
+        }
+        for (Map.Entry<String, Object> entry : values.entrySet()) {
+            if (!hasText(entry.getKey())) {
+                continue;
+            }
+            Object value = entry.getValue();
+            if (value == null) {
+                continue;
+            }
+            if (value instanceof String s) {
+                if (hasText(s)) {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasOtherTablesContent(Map<String, List<Map<String, String>>> tables) {
+        if (tables == null || tables.isEmpty()) {
+            return false;
+        }
+        for (Map.Entry<String, List<Map<String, String>>> entry : tables.entrySet()) {
+            if (!hasText(entry.getKey())) {
+                continue;
+            }
+            List<Map<String, String>> rows = entry.getValue();
+            if (rows != null && !rows.isEmpty()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String asText(Object value) {

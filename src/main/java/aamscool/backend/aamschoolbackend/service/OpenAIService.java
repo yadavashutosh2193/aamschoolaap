@@ -219,20 +219,18 @@ Return final valid JSON only.
 
     private String buildMasterRefinePrompt(String rawJson) {
         return """
-You are refining scraped job JSON for publishing.
+You are refining complete scraped job JSON for publishing.
 
 Input JSON:
 """ + rawJson + """
 
 Rules:
 1) Return valid JSON only.
-2) Keep these keys exactly unchanged from input:
-   - advertisement_no
-   - important_dates
-   - application_fee
-   - official_links
-   - source
-3) Rewrite and sanitize content-heavy fields to be concise and original:
+2) Use the same master JSON structure and key names (snake_case).
+3) Analyze the full JSON and fix incorrect key-value pairing when values are assigned to wrong keys.
+4) Correct obvious key naming/normalization issues, but keep schema-compatible keys used by the input format.
+5) Improve SEO and AdSense-friendliness for user-facing text without adding spammy or misleading text.
+6) Rewrite and sanitize content-heavy fields to be concise and original:
    - title
    - short_description
    - post_name
@@ -242,18 +240,18 @@ Rules:
    - selection_process
    - important_notes
    - syllabus_overview
-4) Do not invent factual values. If uncertain, keep original.
-5) Remove "click here", "question/answer", and boilerplate phrasing from rewritten fields.
-6) Keep JSON structure and key names same as input.
-7) For non-locked keys, you may normalize/clean structure, but do not alter factual numbers/dates/quantities present in input.
-8) exam_scheme may contain structured objects (nested JSON), not only strings.
-9) If physical standards are available in exam_scheme.physical_standard_test text or other_tables physical table, convert to structured object format:
+7) Do not invent factual values. If uncertain, keep original values.
+8) Preserve factual numbers, dates, links, fees, vacancies, marks, and eligibility constraints.
+9) Remove "click here", repetitive boilerplate, and low-quality filler from narrative fields.
+10) exam_scheme may contain structured objects (nested JSON), not only strings.
+11) If physical standards are available in exam_scheme.physical_standard_test text or other_tables physical table, convert to structured object format:
    {
      "male": { "general_bc": {...}, "other": {...} },
      "female": { "general_bc": {...}, "other": {...} }
    }
    Keep values factual from input only (height/chest/weight), set missing ones to null.
-10) If you cannot confidently structure physical_standard_test, keep original value unchanged.
+12) If you cannot confidently structure any section, keep original section unchanged.
+13) Keep `source` URL unchanged.
 """;
     }
 

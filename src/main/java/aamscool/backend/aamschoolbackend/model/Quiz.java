@@ -35,6 +35,7 @@ public class Quiz {
 
     private Integer totalQuestions;
     private Integer totalMarks;
+    private Integer durationMinutes;
 
     private String createdBy;
 
@@ -103,6 +104,14 @@ public class Quiz {
 
     public void setTotalMarks(Integer totalMarks) {
         this.totalMarks = totalMarks;
+    }
+
+    public Integer getDurationMinutes() {
+        return durationMinutes;
+    }
+
+    public void setDurationMinutes(Integer durationMinutes) {
+        this.durationMinutes = durationMinutes;
     }
 
     public String getCreatedBy() {

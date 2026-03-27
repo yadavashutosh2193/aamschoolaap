@@ -172,6 +172,9 @@ public class ExamSyllabusMasterDto {
         @JsonAlias("negativeMarking")
         private Boolean negativeMarking;
 
+        @JsonAlias({"negativeMarkPerQuestion", "negative_mark_per_question"})
+        private Double negativeMarkPerQuestion;
+
         @JsonAlias("qualifyingMarks")
         private Map<String, Object> qualifyingMarks = new LinkedHashMap<>();
 
@@ -237,6 +240,14 @@ public class ExamSyllabusMasterDto {
             } else {
                 this.negativeMarking = Boolean.parseBoolean(String.valueOf(negativeMarking));
             }
+        }
+
+        public Double getNegativeMarkPerQuestion() {
+            return negativeMarkPerQuestion;
+        }
+
+        public void setNegativeMarkPerQuestion(Object negativeMarkPerQuestion) {
+            this.negativeMarkPerQuestion = toDouble(negativeMarkPerQuestion);
         }
 
         public Map<String, Object> getQualifyingMarks() {
@@ -455,6 +466,32 @@ public class ExamSyllabusMasterDto {
             }
             try {
                 return Integer.parseInt(digitsOnly);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+    }
+
+    private static Double toDouble(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isBlank()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(text);
+        } catch (NumberFormatException ex) {
+            String normalized = text.replaceAll("[^0-9.\\-]", "");
+            if (normalized.isBlank() || "-".equals(normalized) || ".".equals(normalized) || "-.".equals(normalized)) {
+                return null;
+            }
+            try {
+                return Double.parseDouble(normalized);
             } catch (NumberFormatException ignored) {
                 return null;
             }

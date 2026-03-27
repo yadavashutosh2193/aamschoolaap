@@ -686,6 +686,7 @@ public class QuizService {
         }
         dto.setTotalQuestions(quiz.getTotalQuestions());
         dto.setTotalMarks(quiz.getTotalMarks());
+        dto.setDurationMinutes(quiz.getDurationMinutes());
         dto.setCreatedBy(quiz.getCreatedBy());
         dto.setCreatedAt(quiz.getCreatedAt());
         dto.setUpdatedAt(quiz.getUpdatedAt());

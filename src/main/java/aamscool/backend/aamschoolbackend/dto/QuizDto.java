@@ -13,6 +13,7 @@ public class QuizDto {
     private ExamDto exam;
     private Integer totalQuestions;
     private Integer totalMarks;
+    private Integer durationMinutes;
     private String createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -80,6 +81,14 @@ public class QuizDto {
 
     public void setTotalMarks(Integer totalMarks) {
         this.totalMarks = totalMarks;
+    }
+
+    public Integer getDurationMinutes() {
+        return durationMinutes;
+    }
+
+    public void setDurationMinutes(Integer durationMinutes) {
+        this.durationMinutes = durationMinutes;
     }
 
     public String getCreatedBy() {

@@ -6,6 +6,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,10 +21,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import aamscool.backend.aamschoolbackend.model.HomePageLinksModel;
 import aamscool.backend.aamschoolbackend.model.JobPosts;
+import aamscool.backend.aamschoolbackend.model.ScrapeCache;
 import aamscool.backend.aamschoolbackend.repository.JobsRepository;
+import aamscool.backend.aamschoolbackend.util.LabelUtil;
 
 @Service
 public class JobsService {
+    private static final Pattern DIGIT_PATTERN = Pattern.compile("(\\d[\\d,]*)");
+    private static final Set<String> LABELS_REQUIRING_POST_COUNT = Set.of(
+            "latest-jobs",
+            "admit-cards",
+            "latest-results",
+            "answer-keys"
+    );
 
     @Autowired
     JobsRepository jobDao;
@@ -32,6 +44,9 @@ public class JobsService {
     @Autowired
     FacebookPageNotifierService facebookPageNotifierService;
 
+    @Autowired
+    ScrapeCache cache;
+
     private static final Logger log = LoggerFactory.getLogger(JobsService.class);
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -40,7 +55,9 @@ public class JobsService {
     }
 
     public JobPosts createJob(JobPosts job) {
-        return jobDao.save(job);
+        JobPosts saved = jobDao.save(job);
+        refreshCachesAfterWrite(saved, null);
+        return saved;
     }
 
     public Optional<JobPosts> updateJob(long id, JobPosts updates) {
@@ -49,6 +66,7 @@ public class JobsService {
             return Optional.empty();
         }
         JobPosts job = existing.get();
+        String previousLabel = job.getLabel();
         if (updates.getLabel() != null) {
             job.setLabel(updates.getLabel());
         }
@@ -65,22 +83,30 @@ public class JobsService {
             job.setContent(updates.getContent());
         }
         job.setApproved(updates.isApproved());
-        return Optional.of(jobDao.save(job));
+        JobPosts saved = jobDao.save(job);
+        refreshCachesAfterWrite(saved, previousLabel);
+        return Optional.of(saved);
     }
 
     public boolean deleteJob(long id) {
-        if (!jobDao.existsById(id)) {
+        Optional<JobPosts> existing = jobDao.findById(id);
+        if (existing.isEmpty()) {
             return false;
         }
         jobDao.deleteById(id);
+        cache.invalidateJobPost(id);
+        cache.invalidateJobsLabel(existing.get().getLabel());
         return true;
     }
 
     public List<HomePageLinksModel> getLatestJob(String label) {
+        boolean enrichTitleWithPostCount = LABELS_REQUIRING_POST_COUNT.contains(
+                LabelUtil.normalizeCategoryLabel(label)
+        );
         List<HomePageLinksModel> links = jobDao.findByLabelOrderByCreatedAtDesc(label)
                 .stream()
                 .map(job -> new HomePageLinksModel(
-                        job.getTitle(),
+                        enrichTitleWithPostCount ? buildTitleWithPostCount(job.getTitle(), job.getContent()) : job.getTitle(),
                         job.getJobId(),
                         job.getCreatedAt(),
                         extractImportantDates(job.getContent())
@@ -91,6 +117,88 @@ public class JobsService {
                 ))
                 .toList();
         return links;
+    }
+
+    private String buildTitleWithPostCount(String title, String content) {
+        if (title == null || title.isBlank()) {
+            return title;
+        }
+        if (containsPostCount(title)) {
+            return title;
+        }
+
+        String totalVacancy = extractTotalVacancy(content);
+        if (totalVacancy == null || totalVacancy.isBlank()) {
+            return title;
+        }
+        return title + " (" + totalVacancy + " Posts)";
+    }
+
+    private boolean containsPostCount(String title) {
+        if (title == null || title.isBlank()) {
+            return false;
+        }
+        String lower = title.toLowerCase();
+        return lower.matches(".*\\b\\d[\\d,]*\\s*\\+?\\s*(post|posts|vacancy|vacancies)\\b.*");
+    }
+
+    private String extractTotalVacancy(String content) {
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = mapper.readTree(content);
+            for (String path : List.of(
+                    "vacancyDetails.totalVacancy",
+                    "vacancyDetails.total_vacancy",
+                    "vacancy_details.totalVacancy",
+                    "vacancy_details.total_vacancy",
+                    "totalVacancy",
+                    "total_vacancy"
+            )) {
+                String value = textAtPath(root, path);
+                String normalized = normalizeVacancyCount(value);
+                if (normalized != null) {
+                    return normalized;
+                }
+            }
+        } catch (Exception ignored) {
+            // Keep latest-jobs API resilient even if one row has malformed content JSON.
+        }
+        return null;
+    }
+
+    private String textAtPath(JsonNode root, String dottedPath) {
+        JsonNode current = root;
+        for (String part : dottedPath.split("\\.")) {
+            if (current == null || current.isMissingNode() || current.isNull()) {
+                return null;
+            }
+            current = current.path(part);
+        }
+        if (current == null || current.isMissingNode() || current.isNull()) {
+            return null;
+        }
+        return current.isValueNode() ? current.asText() : current.toString();
+    }
+
+    private String normalizeVacancyCount(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String text = raw.trim();
+        if (text.isBlank()) {
+            return null;
+        }
+        Matcher matcher = DIGIT_PATTERN.matcher(text);
+        if (!matcher.find()) {
+            return null;
+        }
+        String digits = matcher.group(1).replace(",", "");
+        if (digits.isBlank()) {
+            return null;
+        }
+        return digits;
     }
 
     private Map<String, String> extractImportantDates(String content) {
@@ -143,7 +251,9 @@ public class JobsService {
                 old.setCreatedAt(LocalDate.now());
                 old.setApproved(false);
                 log.info("saving existing job with job title = {} jobId = {}", old.getTitle(), old.getJobId());
-                return jobDao.save(old);
+                JobPosts saved = jobDao.save(old);
+                refreshCachesAfterWrite(saved, old.getLabel());
+                return saved;
 
             } else {
                 job.setCreatedAt(LocalDate.now());
@@ -162,12 +272,24 @@ public class JobsService {
                     log.error("Facebook notification failed for jobId={}", saved.getJobId(), ex);
                 }
 
+                refreshCachesAfterWrite(saved, null);
                 return saved;
             }
 
         } catch (Exception e) {
             throw new RuntimeException("Failed to save job post: " + e.getMessage(), e);
         }
+    }
+
+    private void refreshCachesAfterWrite(JobPosts saved, String previousLabel) {
+        if (saved == null) {
+            return;
+        }
+        cache.putJobPost(saved);
+        if (previousLabel != null && !previousLabel.isBlank()) {
+            cache.invalidateJobsLabel(previousLabel);
+        }
+        cache.invalidateJobsLabel(saved.getLabel());
     }
 
 }
