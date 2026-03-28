@@ -16,29 +16,29 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class ExamSyllabusMasterDto {
 
-    @JsonAlias("examName")
+    @JsonAlias({"examName", "exam_name"})
     private String examName;
 
-    @JsonAlias("examCode")
+    @JsonAlias({"examCode", "exam_code"})
     private String examCode;
 
-    @JsonAlias("conductingBody")
+    @JsonAlias({"conductingBody", "conducting_body"})
     private String conductingBody;
 
-    @JsonAlias("notificationYear")
+    @JsonAlias({"notificationYear", "notification_year"})
     private Integer notificationYear;
 
     private List<String> level = new ArrayList<>();
 
-    @JsonAlias("examPattern")
+    @JsonAlias({"examPattern", "exam_pattern"})
     private ExamPatternDto examPattern = new ExamPatternDto();
 
     private List<PaperDto> papers = new ArrayList<>();
 
-    @JsonAlias("languageOptions")
+    @JsonAlias({"languageOptions", "language_options"})
     private Map<String, Object> languageOptions = new LinkedHashMap<>();
 
-    @JsonAlias("selectionRule")
+    @JsonAlias({"selectionRule", "selection_rule"})
     private Map<String, Object> selectionRule = new LinkedHashMap<>();
 
     private Map<String, Object> meta = new LinkedHashMap<>();
@@ -154,28 +154,28 @@ public class ExamSyllabusMasterDto {
 
         private String mode;
 
-        @JsonAlias("questionType")
+        @JsonAlias({"questionType", "question_type"})
         private String questionType;
 
-        @JsonAlias("durationMinutes")
+        @JsonAlias({"durationMinutes", "duration_minutes"})
         private Integer durationMinutes;
 
-        @JsonAlias("totalQuestions")
+        @JsonAlias({"totalQuestions", "total_questions"})
         private Integer totalQuestions;
 
-        @JsonAlias("totalMarks")
+        @JsonAlias({"totalMarks", "total_marks"})
         private Integer totalMarks;
 
-        @JsonAlias("markPerQuestion")
+        @JsonAlias({"markPerQuestion", "mark_per_question"})
         private Integer markPerQuestion;
 
-        @JsonAlias("negativeMarking")
+        @JsonAlias({"negativeMarking", "negative_marking"})
         private Boolean negativeMarking;
 
         @JsonAlias({"negativeMarkPerQuestion", "negative_mark_per_question"})
         private Double negativeMarkPerQuestion;
 
-        @JsonAlias("qualifyingMarks")
+        @JsonAlias({"qualifyingMarks", "qualifying_marks"})
         private Map<String, Object> qualifyingMarks = new LinkedHashMap<>();
 
         private final Map<String, Object> extraFields = new LinkedHashMap<>();
@@ -273,13 +273,13 @@ public class ExamSyllabusMasterDto {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class PaperDto {
 
-        @JsonAlias("paperCode")
+        @JsonAlias({"paperCode", "paper_code"})
         private String paperCode;
 
-        @JsonAlias("paperName")
+        @JsonAlias({"paperName", "paper_name"})
         private String paperName;
 
-        @JsonAlias("applicableFor")
+        @JsonAlias({"applicableFor", "applicable_for"})
         private String applicableFor;
 
         private List<SubjectDto> subjects = new ArrayList<>();
@@ -333,14 +333,14 @@ public class ExamSyllabusMasterDto {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class SubjectDto {
 
-        @JsonAlias("subjectName")
+        @JsonAlias({"subjectName", "subject_name"})
         private String subjectName;
 
         private Integer questions;
 
         private Integer marks;
 
-        @JsonAlias("applicableFor")
+        @JsonAlias({"applicableFor", "applicable_for"})
         private String applicableFor;
 
         private Object topics;
