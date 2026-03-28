@@ -177,7 +177,9 @@ public class ExamTestSeriesService {
         context.examName = safe(detail.getSyllabus().getExamName());
         context.totalQuestionsPerSeries = detail.getSyllabus().getExamPattern().getTotalQuestions();
         context.totalMarks = detail.getSyllabus().getExamPattern().getTotalMarks();
-        context.markPerQuestion = detail.getSyllabus().getExamPattern().getMarkPerQuestion();
+        context.markPerQuestion = detail.getSyllabus().getExamPattern().getMarkPerQuestion() == null
+                ? 1
+                : detail.getSyllabus().getExamPattern().getMarkPerQuestion().intValue();
         context.durationMinutes = detail.getSyllabus().getExamPattern().getDurationMinutes();
         context.negativeMarkingEnabled = Boolean.TRUE.equals(detail.getSyllabus().getExamPattern().getNegativeMarking());
         context.negativeMarkPerQuestion = context.negativeMarkingEnabled

@@ -167,7 +167,7 @@ public class ExamSyllabusMasterDto {
         private Integer totalMarks;
 
         @JsonAlias({"markPerQuestion", "mark_per_question"})
-        private Integer markPerQuestion;
+        private Double markPerQuestion;
 
         @JsonAlias({"negativeMarking", "negative_marking"})
         private Boolean negativeMarking;
@@ -220,12 +220,12 @@ public class ExamSyllabusMasterDto {
             this.totalMarks = toInteger(totalMarks);
         }
 
-        public Integer getMarkPerQuestion() {
+        public Double getMarkPerQuestion() {
             return markPerQuestion;
         }
 
         public void setMarkPerQuestion(Object markPerQuestion) {
-            this.markPerQuestion = toInteger(markPerQuestion);
+            this.markPerQuestion = toDouble(markPerQuestion);
         }
 
         public Boolean getNegativeMarking() {
