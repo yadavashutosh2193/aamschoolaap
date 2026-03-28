@@ -499,6 +499,44 @@ Rules:
         }
     }
 
+    public String generateExamSubjectTopicQuestions(String examName,
+                                                    String subject,
+                                                    String topic,
+                                                    int count,
+                                                    String difficultyLevel,
+                                                    String language,
+                                                    List<String> avoidQuestions) throws Exception {
+        String prompt = buildExamSubjectTopicQuestionsPrompt(
+                examName,
+                subject,
+                topic,
+                count,
+                difficultyLevel,
+                language,
+                avoidQuestions
+        );
+        String requestBody = buildRequestBody(prompt);
+
+        Request request = new Request.Builder()
+                .url(OPENAI_URL)
+                .post(RequestBody.create(requestBody, JSON))
+                .addHeader("Authorization", "Bearer " + apiKey)
+                .addHeader("Content-Type", "application/json")
+                .build();
+
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new RuntimeException(
+                        "OpenAI API Error: " + response.code() +
+                                " | " + response.message()
+                );
+            }
+
+            String raw = response.body().string();
+            return extractCleanJson(raw);
+        }
+    }
+
     private String buildCurrentAffairsPrompt(LocalDate quizDate, int count, List<String> avoidQuestions,
             List<String> topicAreas) {
         String avoidBlock = buildAvoidQuestionsBlock(avoidQuestions);
@@ -567,6 +605,48 @@ Rules:
 8) Ensure no duplicate questions and no empty fields.
 %s
 """.formatted(count, quizDate, currentYear, previousYear, topicAreasBlock, topicAreasInline, avoidBlock);
+    }
+
+    private String buildExamSubjectTopicQuestionsPrompt(String examName,
+                                                        String subject,
+                                                        String topic,
+                                                        int count,
+                                                        String difficultyLevel,
+                                                        String language,
+                                                        List<String> avoidQuestions) {
+        String avoidBlock = buildAvoidQuestionsBlock(avoidQuestions);
+        String safeExam = examName == null ? "" : examName.trim();
+        String safeDifficulty = difficultyLevel == null ? "Medium" : difficultyLevel.trim();
+        String safeLanguage = language == null || language.isBlank() ? "HINDI" : language.trim();
+        return """
+Generate exactly %d exam-ready MCQ questions as a JSON array.
+
+Context:
+- Exam Name: %s
+- Subject: %s
+- Topic: %s
+- Difficulty: %s
+- Output Language: %s
+
+Rules:
+1) Return a JSON array only. No markdown, no comments, no extra text.
+2) Each item must contain exactly these keys:
+   - question
+   - options (array of exactly 4 unique string options)
+   - correct_option (must exactly match one options value)
+   - explanation (1-3 lines concise reasoning)
+3) Use Hindi language (Devanagari) for question, options, and explanation.
+4) If a question needs a visual, include an optional key `question_image_svg` with valid inline SVG markup string.
+5) If an option needs a visual, include an optional key `option_image_svgs` as array of 4 items (SVG string or null), matching options order.
+6) Every question must strictly belong to the provided subject and topic.
+7) Keep the requested difficulty level consistent for all questions in this call.
+8) Questions must be unique and non-repetitive.
+9) Avoid ambiguous or multiple-correct answers.
+10) Keep language clear for competitive exam candidates.
+11) If no image is needed, omit `question_image_svg` and `option_image_svgs`.
+12) Never repeat question stem from the avoid list. If unique questions are exhausted, return fewer items instead of duplicates.
+%s
+""".formatted(count, safeExam, subject, topic, safeDifficulty, safeLanguage, avoidBlock);
     }
 
     private String buildAvoidQuestionsBlock(List<String> avoidQuestions) {

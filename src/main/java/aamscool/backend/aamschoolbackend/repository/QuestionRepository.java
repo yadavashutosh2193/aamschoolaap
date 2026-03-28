@@ -90,6 +90,46 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
     long countBySubjectAndExam(@Param("subject") String subject, @Param("examId") Long examId);
 
     @Query("""
+            select count(q) from Question q
+            where lower(trim(q.subject)) = lower(trim(:subject))
+              and lower(trim(q.topic)) = lower(trim(:topic))
+            """)
+    long countBySubjectAndTopic(@Param("subject") String subject, @Param("topic") String topic);
+
+    @Query("""
+            select count(q) from Question q
+            where lower(trim(q.subject)) = lower(trim(:subject))
+              and lower(trim(q.topic)) = lower(trim(:topic))
+              and exists (select e from q.exams e where e.id = :examId)
+            """)
+    long countBySubjectAndTopicAndExamId(
+            @Param("subject") String subject,
+            @Param("topic") String topic,
+            @Param("examId") Long examId);
+
+    @Query("""
+            select q.questionText from Question q
+            where lower(trim(q.subject)) = lower(trim(:subject))
+              and lower(trim(q.topic)) = lower(trim(:topic))
+              and q.questionText is not null
+              and q.questionText <> ''
+            """)
+    List<String> findQuestionTextsBySubjectAndTopic(@Param("subject") String subject, @Param("topic") String topic);
+
+    @Query("""
+            select q.questionText from Question q
+            where lower(trim(q.subject)) = lower(trim(:subject))
+              and lower(trim(q.topic)) = lower(trim(:topic))
+              and exists (select e from q.exams e where e.id = :examId)
+              and q.questionText is not null
+              and q.questionText <> ''
+            """)
+    List<String> findQuestionTextsBySubjectAndTopicAndExamId(
+            @Param("subject") String subject,
+            @Param("topic") String topic,
+            @Param("examId") Long examId);
+
+    @Query("""
             select q.topic as topic, count(q) as questionCount
             from Question q
             where lower(trim(q.subject)) = lower(trim(:subject))

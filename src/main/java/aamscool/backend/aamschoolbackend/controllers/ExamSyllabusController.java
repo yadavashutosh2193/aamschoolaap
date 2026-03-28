@@ -18,6 +18,8 @@ import aamscool.backend.aamschoolbackend.dto.ExamSyllabusDetailDto;
 import aamscool.backend.aamschoolbackend.dto.ExamSyllabusMasterDto;
 import aamscool.backend.aamschoolbackend.dto.ExamSyllabusSummaryDto;
 import aamscool.backend.aamschoolbackend.dto.ExamTestSeriesOverviewDto;
+import aamscool.backend.aamschoolbackend.dto.AdminQuestionGenerationRequestDto;
+import aamscool.backend.aamschoolbackend.service.AdminSyllabusQuestionService;
 import aamscool.backend.aamschoolbackend.service.ExamSyllabusService;
 import aamscool.backend.aamschoolbackend.service.ExamTestSeriesService;
 
@@ -27,11 +29,14 @@ public class ExamSyllabusController {
 
     private final ExamSyllabusService examSyllabusService;
     private final ExamTestSeriesService examTestSeriesService;
+    private final AdminSyllabusQuestionService adminSyllabusQuestionService;
 
     public ExamSyllabusController(ExamSyllabusService examSyllabusService,
-                                  ExamTestSeriesService examTestSeriesService) {
+                                  ExamTestSeriesService examTestSeriesService,
+                                  AdminSyllabusQuestionService adminSyllabusQuestionService) {
         this.examSyllabusService = examSyllabusService;
         this.examTestSeriesService = examTestSeriesService;
+        this.adminSyllabusQuestionService = adminSyllabusQuestionService;
     }
 
     @GetMapping("/latest")
@@ -103,6 +108,27 @@ public class ExamSyllabusController {
     public ResponseEntity<?> adminTestSeriesOverviewByExam(@PathVariable("examKey") String examKey) {
         return examTestSeriesService.getOverviewByExamKey(examKey)
                 .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                        "status", "error",
+                        "message", "Syllabus not found for exam key"
+                )));
+    }
+
+    @GetMapping("/admin/question-bank/coverage/{examKey}")
+    public ResponseEntity<?> adminQuestionBankCoverage(@PathVariable("examKey") String examKey) {
+        return adminSyllabusQuestionService.getCoverageByExamKey(examKey)
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                        "status", "error",
+                        "message", "Syllabus not found for exam key"
+                )));
+    }
+
+    @PostMapping("/admin/question-bank/generate-preview/{examKey}")
+    public ResponseEntity<?> adminGenerateQuestionPreview(@PathVariable("examKey") String examKey,
+                                                          @RequestBody AdminQuestionGenerationRequestDto request) {
+        return adminSyllabusQuestionService.generatePreviewByExamKey(examKey, request)
+                .<ResponseEntity<?>>map(preview -> ResponseEntity.ok(preview.getQuestions()))
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                         "status", "error",
                         "message", "Syllabus not found for exam key"
