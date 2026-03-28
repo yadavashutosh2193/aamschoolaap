@@ -178,8 +178,8 @@ public class ExamTestSeriesService {
         context.totalQuestionsPerSeries = detail.getSyllabus().getExamPattern().getTotalQuestions();
         context.totalMarks = detail.getSyllabus().getExamPattern().getTotalMarks();
         context.markPerQuestion = detail.getSyllabus().getExamPattern().getMarkPerQuestion() == null
-                ? 1
-                : detail.getSyllabus().getExamPattern().getMarkPerQuestion().intValue();
+                ? 1.0
+                : detail.getSyllabus().getExamPattern().getMarkPerQuestion();
         context.durationMinutes = detail.getSyllabus().getExamPattern().getDurationMinutes();
         context.negativeMarkingEnabled = Boolean.TRUE.equals(detail.getSyllabus().getExamPattern().getNegativeMarking());
         context.negativeMarkPerQuestion = context.negativeMarkingEnabled
@@ -422,7 +422,7 @@ public class ExamTestSeriesService {
         private String examName;
         private int totalQuestionsPerSeries;
         private int totalMarks;
-        private int markPerQuestion;
+        private Double markPerQuestion;
         private int durationMinutes;
         private boolean negativeMarkingEnabled;
         private Double negativeMarkPerQuestion;

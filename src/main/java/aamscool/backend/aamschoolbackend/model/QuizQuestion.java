@@ -26,7 +26,7 @@ public class QuizQuestion {
     private Question question;
 
     private Integer orderIndex;
-    private Integer marks;
+    private Double marks;
     private Double negativeMarks;
 
     public Long getId() {
@@ -61,11 +61,11 @@ public class QuizQuestion {
         this.orderIndex = orderIndex;
     }
 
-    public Integer getMarks() {
+    public Double getMarks() {
         return marks;
     }
 
-    public void setMarks(Integer marks) {
+    public void setMarks(Double marks) {
         this.marks = marks;
     }
 

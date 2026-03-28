@@ -4,7 +4,7 @@ public class QuizQuestionDto {
 
     private Long id;
     private Integer orderIndex;
-    private Integer marks;
+    private Double marks;
     private Double negativeMarks;
     private QuestionDto question;
 
@@ -24,11 +24,11 @@ public class QuizQuestionDto {
         this.orderIndex = orderIndex;
     }
 
-    public Integer getMarks() {
+    public Double getMarks() {
         return marks;
     }
 
-    public void setMarks(Integer marks) {
+    public void setMarks(Double marks) {
         this.marks = marks;
     }
 

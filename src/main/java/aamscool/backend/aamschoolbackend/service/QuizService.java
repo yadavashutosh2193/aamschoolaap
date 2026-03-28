@@ -186,7 +186,9 @@ public class QuizService {
         int wrongAnswers = 0;
         int attemptedQuestions = 0;
         int totalMarks = quiz.getTotalMarks() == null
-                ? quizQuestions.stream().mapToInt(q -> q.getMarks() == null ? 0 : q.getMarks()).sum()
+                ? (int) Math.round(quizQuestions.stream()
+                        .mapToDouble(q -> q.getMarks() == null ? 0.0 : q.getMarks())
+                        .sum())
                 : quiz.getTotalMarks();
 
         for (QuizQuestion quizQuestion : quizQuestions) {
@@ -459,13 +461,13 @@ public class QuizService {
             qq.setQuiz(savedQuiz);
             qq.setQuestion(q);
             qq.setOrderIndex(order++);
-            int marks = request.getMarks() == null ? (q.getMarks() == null ? 1 : q.getMarks()) : request.getMarks();
+            double marks = request.getMarks() == null ? (q.getMarks() == null ? 1.0 : q.getMarks()) : request.getMarks();
             double negative = request.getNegativeMarks() == null
                     ? (q.getNegativeMarks() == null ? 0.0 : q.getNegativeMarks())
                     : request.getNegativeMarks();
             qq.setMarks(marks);
             qq.setNegativeMarks(negative);
-            totalMarks += marks;
+            totalMarks += (int) Math.round(marks);
             quizQuestions.add(qq);
         }
         quizQuestionRepository.saveAll(quizQuestions);
@@ -778,11 +780,11 @@ public class QuizService {
             qq.setQuiz(savedQuiz);
             qq.setQuestion(q);
             qq.setOrderIndex(order++);
-            int marks = q.getMarks() == null ? 1 : q.getMarks();
+            double marks = q.getMarks() == null ? 1.0 : q.getMarks();
             double negative = q.getNegativeMarks() == null ? 0.0 : q.getNegativeMarks();
             qq.setMarks(marks);
             qq.setNegativeMarks(negative);
-            totalMarks += marks;
+            totalMarks += (int) Math.round(marks);
             quizQuestions.add(qq);
         }
         quizQuestionRepository.saveAll(quizQuestions);
