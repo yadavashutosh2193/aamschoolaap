@@ -13,7 +13,9 @@ import aamscool.backend.aamschoolbackend.model.QuestionStatus;
 
 public interface QuestionRepository extends JpaRepository<Question, Long> {
     boolean existsByQuestionCode(String questionCode);
+    boolean existsByQuestionCodeIgnoreCase(String questionCode);
     Question findByQuestionCode(String questionCode);
+    Question findByQuestionCodeIgnoreCase(String questionCode);
     Question findByQuestionText(String questionText);
 
     @Query("""

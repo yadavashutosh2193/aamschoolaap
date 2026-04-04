@@ -60,7 +60,9 @@ public class QuestionService {
     @Transactional
     public QuestionDto create(QuestionDto dto) {
         validate(dto);
-        if (questionRepository.existsByQuestionCode(dto.getQuestionCode())) {
+        String questionCode = normalizeQuestionCode(dto.getQuestionCode());
+        dto.setQuestionCode(questionCode);
+        if (questionRepository.existsByQuestionCodeIgnoreCase(questionCode)) {
             throw new IllegalArgumentException("Question code already exists");
         }
         Question question = new Question();
@@ -80,9 +82,11 @@ public class QuestionService {
         List<String> updatedCodes = new ArrayList<>();
 
         for (QuestionDto dto : questions) {
-            Question existing = findExisting(dto);
+            validate(dto);
+            String questionCode = normalizeQuestionCode(dto.getQuestionCode());
+            dto.setQuestionCode(questionCode);
+            Question existing = findExistingByQuestionCode(questionCode);
             if (existing == null) {
-                validate(dto);
                 Question question = new Question();
                 applyToEntity(question, dto, true);
                 Question saved = questionRepository.save(question);
@@ -111,10 +115,14 @@ public class QuestionService {
     public QuestionDto update(Long id, QuestionDto dto) {
         Question question = questionRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Question not found"));
-        if (dto.getQuestionCode() != null && !dto.getQuestionCode().equals(question.getQuestionCode())) {
-            if (questionRepository.existsByQuestionCode(dto.getQuestionCode())) {
+        if (dto.getQuestionCode() != null) {
+            String incomingCode = normalizeQuestionCode(dto.getQuestionCode());
+            String currentCode = normalizeQuestionCode(question.getQuestionCode());
+            if (!incomingCode.equalsIgnoreCase(currentCode)
+                    && questionRepository.existsByQuestionCodeIgnoreCase(incomingCode)) {
                 throw new IllegalArgumentException("Question code already exists");
             }
+            dto.setQuestionCode(incomingCode);
         }
         applyToEntity(question, dto, false);
         Question saved = questionRepository.save(question);
@@ -154,22 +162,16 @@ public class QuestionService {
         }
     }
 
-    private Question findExisting(QuestionDto dto) {
-        if (dto == null) {
+    private Question findExistingByQuestionCode(String questionCode) {
+        if (questionCode == null) {
             return null;
         }
-        if (dto.getQuestionCode() != null && !dto.getQuestionCode().isBlank()) {
-            return questionRepository.findByQuestionCode(dto.getQuestionCode());
-        }
-        if (dto.getQuestionText() != null && !dto.getQuestionText().isBlank()) {
-            return questionRepository.findByQuestionText(dto.getQuestionText());
-        }
-        return null;
+        return questionRepository.findByQuestionCodeIgnoreCase(questionCode);
     }
 
     private void applyToEntity(Question question, QuestionDto dto, boolean isCreate) {
         if (dto.getQuestionCode() != null) {
-            question.setQuestionCode(dto.getQuestionCode());
+            question.setQuestionCode(normalizeQuestionCode(dto.getQuestionCode()));
         }
         List<String> examNames = dto.getExams();
         if (examNames == null || examNames.isEmpty()) {
@@ -377,5 +379,16 @@ public class QuestionService {
             return 0.0;
         }
         return (correct * 100.0) / total;
+    }
+
+    private String normalizeQuestionCode(String questionCode) {
+        if (questionCode == null) {
+            return null;
+        }
+        String normalized = questionCode.trim();
+        if (normalized.isBlank()) {
+            throw new IllegalArgumentException("Question code is required");
+        }
+        return normalized;
     }
 }

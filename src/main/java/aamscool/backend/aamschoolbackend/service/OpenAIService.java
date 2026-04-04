@@ -108,19 +108,6 @@ public class OpenAIService {
     }
 
     /**
-     * Low-token text cleanup for narrative fields only.
-     */
-    public String rewriteNarrativeFields(String narrativeJson) throws IOException {
-        String prompt = buildNarrativeRewritePrompt(narrativeJson);
-        String raw = executePromptRaw(prompt);
-        try {
-            return extractCleanJson(raw);
-        } catch (Exception ex) {
-            return narrativeJson;
-        }
-    }
-
-    /**
      * Direct URL -> master DTO JSON via OpenAI prompt only (no local scraper parsing).
      */
     public String generateMasterJsonFromUrlDirect(String sourceUrl) throws IOException {
@@ -245,35 +232,6 @@ Important:
 - Keep `important_dates` and `official_links` as factual extraction only.
 - Do not fabricate values.
 """.formatted(sourceUrl);
-    }
-
-    private String buildNarrativeRewritePrompt(String narrativeJson) {
-        return """
-You are cleaning and rewriting text fields of a scraped job JSON.
-
-Input JSON (only narrative fields):
-""" + narrativeJson + """
-
-Rules:
-1) Return valid JSON only.
-2) Keep the same keys exactly:
-   - title
-   - short_description
-   - post_name
-   - application_process
-   - important_notes
-   - syllabus_overview
-   - exam_scheme
-   - context_source
-   - context_conducting_body
-3) Rewrite only text-heavy fields to concise, original wording:
-   title, short_description, post_name, application_process, important_notes, syllabus_overview, exam_scheme values.
-4) Do not fabricate facts, dates, links, fee values, or eligibility values.
-5) Remove boilerplate phrases like "click here", "apply online link", question-answer style text, and repetitive disclaimers.
-6) Keep arrays as arrays and exam_scheme keys unchanged.
-7) exam_scheme values can be nested objects when structure is clearly available (e.g., physical standards table).
-8) Keep context_source and context_conducting_body unchanged.
-""";
     }
 
     private String executePromptRaw(String prompt) throws IOException {
