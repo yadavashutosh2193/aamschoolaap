@@ -6,6 +6,7 @@ public class QuizAttemptResultDto {
 
     private Long quizId;
     private Long attemptId;
+    private Integer attemptNumber;
     private Long userId;
     private String username;
     private Double score;
@@ -31,6 +32,14 @@ public class QuizAttemptResultDto {
 
     public void setAttemptId(Long attemptId) {
         this.attemptId = attemptId;
+    }
+
+    public Integer getAttemptNumber() {
+        return attemptNumber;
+    }
+
+    public void setAttemptNumber(Integer attemptNumber) {
+        this.attemptNumber = attemptNumber;
     }
 
     public Long getUserId() {

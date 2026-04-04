@@ -6,7 +6,9 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
@@ -40,6 +42,7 @@ import aamscool.backend.aamschoolbackend.model.QuestionStatus;
 import aamscool.backend.aamschoolbackend.model.Quiz;
 import aamscool.backend.aamschoolbackend.model.QuizAttempt;
 import aamscool.backend.aamschoolbackend.model.QuizQuestion;
+import aamscool.backend.aamschoolbackend.model.QuizType;
 import aamscool.backend.aamschoolbackend.model.UserAccount;
 import aamscool.backend.aamschoolbackend.repository.ExamRepository;
 import aamscool.backend.aamschoolbackend.repository.QuestionRepository;
@@ -76,14 +79,18 @@ public class QuizService {
         return quizRepository.findAll().stream().map(this::toDto).toList();
     }
 
-    public List<QuizListItemDto> getBySubjectAndTopic(String subject, String topic) {
+    public List<QuizListItemDto> getBySubjectAndTopic(String subject, String topic, String quizType) {
         if (subject == null || subject.isBlank()) {
             throw new IllegalArgumentException("Subject is required");
         }
         if (topic == null || topic.isBlank()) {
             throw new IllegalArgumentException("Topic is required");
         }
-        return quizRepository.findBySubjectAndTopic(subject, topic).stream()
+        QuizType filterType = parseQuizType(quizType);
+        List<Quiz> quizzes = filterType == null
+                ? quizRepository.findBySubjectAndTopic(subject, topic)
+                : quizRepository.findBySubjectAndTopicAndQuizTypeOrderByCreatedAtAsc(subject, topic, filterType);
+        return quizzes.stream()
                 .map(this::toListItem)
                 .toList();
     }
@@ -125,11 +132,11 @@ public class QuizService {
         List<Long> quizIds = quizzes.stream().map(Quiz::getId).toList();
         List<QuizAttempt> attempts = quizIds.isEmpty() ? new ArrayList<>() : quizAttemptRepository.findByQuizIdIn(quizIds);
 
-        Map<Long, Integer> attemptedCounts = new HashMap<>();
+        Map<Long, Set<Long>> attemptedUsers = new HashMap<>();
         Map<Long, LocalDateTime> lastAttempted = new HashMap<>();
         for (QuizAttempt attempt : attempts) {
             Long quizId = attempt.getQuiz().getId();
-            attemptedCounts.put(quizId, attemptedCounts.getOrDefault(quizId, 0) + 1);
+            attemptedUsers.computeIfAbsent(quizId, key -> new HashSet<>()).add(attempt.getUser().getId());
 
             LocalDateTime submittedAt = attempt.getSubmittedAt();
             LocalDateTime currentLatest = lastAttempted.get(quizId);
@@ -141,7 +148,7 @@ public class QuizService {
         List<AdminQuizAttemptStatDto> quizStats = new ArrayList<>();
         int totalAttemptedCandidates = 0;
         for (Quiz quiz : quizzes) {
-            int attemptedCandidates = attemptedCounts.getOrDefault(quiz.getId(), 0);
+            int attemptedCandidates = attemptedUsers.getOrDefault(quiz.getId(), Set.of()).size();
             totalAttemptedCandidates += attemptedCandidates;
 
             AdminQuizAttemptStatDto dto = new AdminQuizAttemptStatDto();
@@ -213,10 +220,11 @@ public class QuizService {
 
         double accuracy = attemptedQuestions == 0 ? 0.0 : (correctAnswers * 100.0) / attemptedQuestions;
 
-        QuizAttempt attempt = quizAttemptRepository.findByQuizIdAndUserId(quizId, user.getId())
-                .orElseGet(QuizAttempt::new);
+        long previousAttempts = quizAttemptRepository.countByQuizIdAndUserId(quizId, user.getId());
+        QuizAttempt attempt = new QuizAttempt();
         attempt.setQuiz(quiz);
         attempt.setUser(user);
+        attempt.setAttemptNumber((int) previousAttempts + 1);
         attempt.setScore(score);
         attempt.setTotalMarks(totalMarks);
         attempt.setCorrectAnswers(correctAnswers);
@@ -231,13 +239,37 @@ public class QuizService {
     }
 
     @Transactional(readOnly = true)
+    public List<QuizAttemptResultDto> getAttemptsForCurrentUser(Long quizId, String currentUserEmail) {
+        if (currentUserEmail == null || currentUserEmail.isBlank()) {
+            throw new IllegalArgumentException("Login is required");
+        }
+        UserAccount user = userAccountService.getUserByEmail(currentUserEmail);
+        List<QuizAttempt> attempts = quizAttemptRepository.findByQuizIdAndUserIdOrderBySubmittedAtDesc(quizId, user.getId());
+        List<QuizAttemptResultDto> out = new ArrayList<>();
+        for (QuizAttempt attempt : attempts) {
+            out.add(toAttemptResultDto(attempt));
+        }
+        return out;
+    }
+
+    @Transactional(readOnly = true)
     public QuizLeaderboardDto getLeaderboard(Long quizId, String currentUserEmail) {
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new IllegalArgumentException("Quiz not found"));
 
         Long currentUserId = resolveCurrentUserId(currentUserEmail);
-        List<QuizAttempt> attempts = new ArrayList<>(quizAttemptRepository.findByQuizId(quizId));
-        attempts.sort(compareAttempts());
+        List<QuizAttempt> allAttempts = new ArrayList<>(quizAttemptRepository.findByQuizId(quizId));
+        Map<Long, QuizAttempt> bestByUser = new LinkedHashMap<>();
+        Comparator<QuizAttempt> comparator = compareAttempts();
+        for (QuizAttempt attempt : allAttempts) {
+            Long userId = attempt.getUser().getId();
+            QuizAttempt existing = bestByUser.get(userId);
+            if (existing == null || comparator.compare(attempt, existing) < 0) {
+                bestByUser.put(userId, attempt);
+            }
+        }
+        List<QuizAttempt> attempts = new ArrayList<>(bestByUser.values());
+        attempts.sort(comparator);
 
         List<LeaderboardEntryDto> entries = new ArrayList<>();
         int rank = 1;
@@ -448,6 +480,8 @@ public class QuizService {
         quiz.setTopic(request.getTopic());
         quiz.setSubTopic(request.getSubTopic());
         quiz.setExam(exam);
+        QuizType requestedType = parseQuizType(request.getQuizType());
+        quiz.setQuizType(requestedType == null ? QuizType.GENERAL : requestedType);
         quiz.setTotalQuestions(totalQuestions);
         quiz.setCreatedBy(request.getCreatedBy());
 
@@ -603,6 +637,7 @@ public class QuizService {
         copy.setHardCount(request.getHardCount());
         copy.setMarks(request.getMarks());
         copy.setNegativeMarks(request.getNegativeMarks());
+        copy.setQuizType(request.getQuizType());
         copy.setCreatedBy(request.getCreatedBy());
         copy.setQuizCount(request.getQuizCount());
         return copy;
@@ -680,6 +715,7 @@ public class QuizService {
         dto.setSubject(quiz.getSubject());
         dto.setTopic(quiz.getTopic());
         dto.setSubTopic(quiz.getSubTopic());
+        dto.setQuizType(quiz.getQuizType() == null ? null : quiz.getQuizType().name());
         if (quiz.getExam() != null) {
             ExamDto examDto = new ExamDto();
             examDto.setId(quiz.getExam().getId());
@@ -719,6 +755,7 @@ public class QuizService {
         QuizAttemptResultDto dto = new QuizAttemptResultDto();
         dto.setQuizId(attempt.getQuiz().getId());
         dto.setAttemptId(attempt.getId());
+        dto.setAttemptNumber(attempt.getAttemptNumber());
         dto.setUserId(attempt.getUser().getId());
         dto.setUsername(attempt.getUser().getUsername());
         dto.setScore(attempt.getScore());
@@ -737,7 +774,23 @@ public class QuizService {
         dto.setId(quiz.getId());
         dto.setTitle(quiz.getTitle());
         dto.setSlug(slugify(quiz.getTitle()) + "-" + quiz.getId());
+        dto.setSubTopic(quiz.getSubTopic());
+        dto.setQuizType(quiz.getQuizType() == null ? null : quiz.getQuizType().name());
         return dto;
+    }
+
+    private QuizType parseQuizType(String quizType) {
+        if (quizType == null || quizType.isBlank()) {
+            return null;
+        }
+        String normalized = quizType.trim().toUpperCase(Locale.ROOT)
+                .replace('-', '_')
+                .replace(' ', '_');
+        try {
+            return QuizType.valueOf(normalized);
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Invalid quizType. Allowed values: GENERAL, AUTO_TOPIC, FULL_TEST, SECTIONAL_TEST, PYQ_TEST");
+        }
     }
 
     private String slugify(String input) {
@@ -757,6 +810,7 @@ public class QuizService {
         }
         List<Long> ids = existing.stream().map(Quiz::getId).toList();
         log.info("Removing existing quizzes: subject='{}', topic='{}', quizCount={}", subject, topic, ids.size());
+        quizAttemptRepository.deleteByQuizIdIn(ids);
         quizQuestionRepository.deleteByQuizIdIn(ids);
         quizRepository.deleteAllById(ids);
     }
@@ -766,6 +820,7 @@ public class QuizService {
         quiz.setTitle(title);
         quiz.setSubject(subject);
         quiz.setTopic(topic);
+        quiz.setQuizType(QuizType.AUTO_TOPIC);
         quiz.setTotalQuestions(selected.size());
 
         Quiz savedQuiz = quizRepository.save(quiz);

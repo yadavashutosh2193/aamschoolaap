@@ -40,8 +40,9 @@ public class QuizController {
 
     @GetMapping("/by-topic")
     public List<QuizListItemDto> getByTopic(@RequestParam("subject") String subject,
-            @RequestParam("topic") String topic) {
-        return quizService.getBySubjectAndTopic(subject, topic);
+            @RequestParam("topic") String topic,
+            @RequestParam(value = "quizType", required = false) String quizType) {
+        return quizService.getBySubjectAndTopic(subject, topic, quizType);
     }
 
     @GetMapping("/{id}")
@@ -57,6 +58,14 @@ public class QuizController {
         }
         QuizAttemptResultDto result = quizService.submitQuiz(id, request, authentication == null ? null : authentication.getName());
         return ResponseEntity.status(HttpStatus.CREATED).body(result);
+    }
+
+    @GetMapping("/{id}/my-attempts")
+    public ResponseEntity<List<QuizAttemptResultDto>> myAttempts(@PathVariable Long id, Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        return ResponseEntity.ok(quizService.getAttemptsForCurrentUser(id, authentication.getName()));
     }
 
     @GetMapping("/{id}/leaderboard")

@@ -29,6 +29,7 @@ public class QuizAttempt {
     @JoinColumn(name = "user_id", nullable = false)
     private UserAccount user;
 
+    private Integer attemptNumber;
     private Double score;
     private Integer totalMarks;
     private Integer correctAnswers;
@@ -68,6 +69,14 @@ public class QuizAttempt {
 
     public void setScore(Double score) {
         this.score = score;
+    }
+
+    public Integer getAttemptNumber() {
+        return attemptNumber;
+    }
+
+    public void setAttemptNumber(Integer attemptNumber) {
+        this.attemptNumber = attemptNumber;
     }
 
     public Integer getTotalMarks() {

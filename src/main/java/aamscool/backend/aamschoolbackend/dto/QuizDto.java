@@ -10,6 +10,7 @@ public class QuizDto {
     private String subject;
     private String topic;
     private String subTopic;
+    private String quizType;
     private ExamDto exam;
     private Integer totalQuestions;
     private Integer totalMarks;
@@ -57,6 +58,14 @@ public class QuizDto {
 
     public void setSubTopic(String subTopic) {
         this.subTopic = subTopic;
+    }
+
+    public String getQuizType() {
+        return quizType;
+    }
+
+    public void setQuizType(String quizType) {
+        this.quizType = quizType;
     }
 
     public ExamDto getExam() {

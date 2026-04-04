@@ -15,6 +15,18 @@ public class ExamTestSeriesGenerateResponseDto {
     private int totalGeneratableSeriesCount;
     private int additionalGeneratableAfterRun;
     private List<Long> createdQuizIds = new ArrayList<>();
+    private int generatedNowFullTestCount;
+    private int generatedNowSectionalTestCount;
+    private int generatedNowPyqTestCount;
+    private int generatedTotalFullTestAfterRun;
+    private int generatedTotalSectionalTestAfterRun;
+    private int generatedTotalPyqTestAfterRun;
+    private int additionalGeneratableFullTestAfterRun;
+    private int additionalGeneratableSectionalTestAfterRun;
+    private int additionalGeneratablePyqTestAfterRun;
+    private List<Long> createdFullTestQuizIds = new ArrayList<>();
+    private List<Long> createdSectionalTestQuizIds = new ArrayList<>();
+    private List<Long> createdPyqTestQuizIds = new ArrayList<>();
     private String message;
 
     public String getExamCode() {
@@ -95,6 +107,102 @@ public class ExamTestSeriesGenerateResponseDto {
 
     public void setCreatedQuizIds(List<Long> createdQuizIds) {
         this.createdQuizIds = createdQuizIds == null ? new ArrayList<>() : createdQuizIds;
+    }
+
+    public int getGeneratedNowFullTestCount() {
+        return generatedNowFullTestCount;
+    }
+
+    public void setGeneratedNowFullTestCount(int generatedNowFullTestCount) {
+        this.generatedNowFullTestCount = generatedNowFullTestCount;
+    }
+
+    public int getGeneratedNowSectionalTestCount() {
+        return generatedNowSectionalTestCount;
+    }
+
+    public void setGeneratedNowSectionalTestCount(int generatedNowSectionalTestCount) {
+        this.generatedNowSectionalTestCount = generatedNowSectionalTestCount;
+    }
+
+    public int getGeneratedNowPyqTestCount() {
+        return generatedNowPyqTestCount;
+    }
+
+    public void setGeneratedNowPyqTestCount(int generatedNowPyqTestCount) {
+        this.generatedNowPyqTestCount = generatedNowPyqTestCount;
+    }
+
+    public int getGeneratedTotalFullTestAfterRun() {
+        return generatedTotalFullTestAfterRun;
+    }
+
+    public void setGeneratedTotalFullTestAfterRun(int generatedTotalFullTestAfterRun) {
+        this.generatedTotalFullTestAfterRun = generatedTotalFullTestAfterRun;
+    }
+
+    public int getGeneratedTotalSectionalTestAfterRun() {
+        return generatedTotalSectionalTestAfterRun;
+    }
+
+    public void setGeneratedTotalSectionalTestAfterRun(int generatedTotalSectionalTestAfterRun) {
+        this.generatedTotalSectionalTestAfterRun = generatedTotalSectionalTestAfterRun;
+    }
+
+    public int getGeneratedTotalPyqTestAfterRun() {
+        return generatedTotalPyqTestAfterRun;
+    }
+
+    public void setGeneratedTotalPyqTestAfterRun(int generatedTotalPyqTestAfterRun) {
+        this.generatedTotalPyqTestAfterRun = generatedTotalPyqTestAfterRun;
+    }
+
+    public int getAdditionalGeneratableFullTestAfterRun() {
+        return additionalGeneratableFullTestAfterRun;
+    }
+
+    public void setAdditionalGeneratableFullTestAfterRun(int additionalGeneratableFullTestAfterRun) {
+        this.additionalGeneratableFullTestAfterRun = additionalGeneratableFullTestAfterRun;
+    }
+
+    public int getAdditionalGeneratableSectionalTestAfterRun() {
+        return additionalGeneratableSectionalTestAfterRun;
+    }
+
+    public void setAdditionalGeneratableSectionalTestAfterRun(int additionalGeneratableSectionalTestAfterRun) {
+        this.additionalGeneratableSectionalTestAfterRun = additionalGeneratableSectionalTestAfterRun;
+    }
+
+    public int getAdditionalGeneratablePyqTestAfterRun() {
+        return additionalGeneratablePyqTestAfterRun;
+    }
+
+    public void setAdditionalGeneratablePyqTestAfterRun(int additionalGeneratablePyqTestAfterRun) {
+        this.additionalGeneratablePyqTestAfterRun = additionalGeneratablePyqTestAfterRun;
+    }
+
+    public List<Long> getCreatedFullTestQuizIds() {
+        return createdFullTestQuizIds;
+    }
+
+    public void setCreatedFullTestQuizIds(List<Long> createdFullTestQuizIds) {
+        this.createdFullTestQuizIds = createdFullTestQuizIds == null ? new ArrayList<>() : createdFullTestQuizIds;
+    }
+
+    public List<Long> getCreatedSectionalTestQuizIds() {
+        return createdSectionalTestQuizIds;
+    }
+
+    public void setCreatedSectionalTestQuizIds(List<Long> createdSectionalTestQuizIds) {
+        this.createdSectionalTestQuizIds = createdSectionalTestQuizIds == null ? new ArrayList<>() : createdSectionalTestQuizIds;
+    }
+
+    public List<Long> getCreatedPyqTestQuizIds() {
+        return createdPyqTestQuizIds;
+    }
+
+    public void setCreatedPyqTestQuizIds(List<Long> createdPyqTestQuizIds) {
+        this.createdPyqTestQuizIds = createdPyqTestQuizIds == null ? new ArrayList<>() : createdPyqTestQuizIds;
     }
 
     public String getMessage() {

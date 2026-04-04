@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import aamscool.backend.aamschoolbackend.model.Quiz;
+import aamscool.backend.aamschoolbackend.model.QuizType;
 
 public interface QuizRepository extends JpaRepository<Quiz, Long> {
     @Query("""
@@ -31,6 +32,8 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
             order by q.createdAt asc
             """)
     List<Quiz> findBySubjectAndTopic(@Param("subject") String subject, @Param("topic") String topic);
+
+    List<Quiz> findBySubjectAndTopicAndQuizTypeOrderByCreatedAtAsc(String subject, String topic, QuizType quizType);
 
     @Query("""
             select q from Quiz q
@@ -57,4 +60,11 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
     long countByCreatedByAndSubjectAndTopic(String createdBy, String subject, String topic);
 
     List<Quiz> findByCreatedByAndSubjectAndTopicOrderByCreatedAtAsc(String createdBy, String subject, String topic);
+
+    List<Quiz> findByCreatedByAndSubjectAndTopicAndQuizTypeOrderByCreatedAtAsc(
+            String createdBy,
+            String subject,
+            String topic,
+            QuizType quizType
+    );
 }

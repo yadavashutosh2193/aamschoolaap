@@ -3,10 +3,14 @@ package aamscool.backend.aamschoolbackend.service;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -21,12 +25,29 @@ import okhttp3.Response;
 
 @Service
 public class OpenAIService {
+    private static final Logger log = LoggerFactory.getLogger(OpenAIService.class);
 
     @Value("${openai.api.key}")
     private String apiKey;
 
-    private static final String OPENAI_URL =
-            "https://api.openai.com/v1/chat/completions";
+    @Value("${openai.models:gpt-4.1-mini,gpt-4o-mini}")
+    private String configuredModels;
+
+    @Value("${openai.max-retries:3}")
+    private int maxRetries;
+
+    @Value("${openai.mcq.models:gpt-4.1,gpt-4o}")
+    private String mcqConfiguredModels;
+
+    @Value("${openai.mcq.max-retries:2}")
+    private int mcqMaxRetries;
+
+    private static final String OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+    private static final int MAX_TOKENS = 6000;
+    private static final long RETRY_DELAY_BASE_MS = 800L;
+    private static final int MAX_AVOID_PROMPT_QUESTIONS = 120;
+    private static final int MAX_AVOID_PROMPT_CHARS = 6000;
+    private static final int MAX_AVOID_QUESTION_LENGTH = 220;
 
     private static final MediaType JSON =
             MediaType.parse("application/json");
@@ -70,30 +91,7 @@ public class OpenAIService {
         // 2 Build Prompt
         String prompt = buildPrompt(rawJson);
 
-        // 3 Build Request Body
-        String requestBody = buildRequestBody(prompt);
-
-
-        Request request = new Request.Builder()
-                .url(OPENAI_URL)
-                .post(RequestBody.create(requestBody, JSON))
-                .addHeader("Authorization", "Bearer " + apiKey)
-                .addHeader("Content-Type", "application/json")
-                .build();
-
-
-        try (Response response = client.newCall(request).execute()) {
-
-            if (!response.isSuccessful()) {
-
-                throw new RuntimeException(
-                        "OpenAI API Error: " + response.code() +
-                        " | " + response.message()
-                );
-            }
-
-            return response.body().string();
-        }
+        return executePromptRaw(prompt);
     }
 
     /**
@@ -101,28 +99,11 @@ public class OpenAIService {
      */
     public String refineMasterJobContent(String rawMasterJson) throws IOException {
         String prompt = buildMasterRefinePrompt(rawMasterJson);
-        String requestBody = buildRequestBody(prompt);
-
-        Request request = new Request.Builder()
-                .url(OPENAI_URL)
-                .post(RequestBody.create(requestBody, JSON))
-                .addHeader("Authorization", "Bearer " + apiKey)
-                .addHeader("Content-Type", "application/json")
-                .build();
-
-        try (Response response = client.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                throw new RuntimeException(
-                        "OpenAI API Error: " + response.code() +
-                        " | " + response.message()
-                );
-            }
-            String raw = response.body().string();
-            try {
-                return extractCleanJson(raw);
-            } catch (Exception ex) {
-                return rawMasterJson;
-            }
+        String raw = executePromptRaw(prompt);
+        try {
+            return extractCleanJson(raw);
+        } catch (Exception ex) {
+            return rawMasterJson;
         }
     }
 
@@ -131,28 +112,11 @@ public class OpenAIService {
      */
     public String rewriteNarrativeFields(String narrativeJson) throws IOException {
         String prompt = buildNarrativeRewritePrompt(narrativeJson);
-        String requestBody = buildRequestBody(prompt);
-
-        Request request = new Request.Builder()
-                .url(OPENAI_URL)
-                .post(RequestBody.create(requestBody, JSON))
-                .addHeader("Authorization", "Bearer " + apiKey)
-                .addHeader("Content-Type", "application/json")
-                .build();
-
-        try (Response response = client.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                throw new RuntimeException(
-                        "OpenAI API Error: " + response.code() +
-                                " | " + response.message()
-                );
-            }
-            String raw = response.body().string();
-            try {
-                return extractCleanJson(raw);
-            } catch (Exception ex) {
-                return narrativeJson;
-            }
+        String raw = executePromptRaw(prompt);
+        try {
+            return extractCleanJson(raw);
+        } catch (Exception ex) {
+            return narrativeJson;
         }
     }
 
@@ -161,29 +125,11 @@ public class OpenAIService {
      */
     public String generateMasterJsonFromUrlDirect(String sourceUrl) throws IOException {
         String prompt = buildDirectUrlMasterPrompt(sourceUrl);
-        String requestBody = buildRequestBody(prompt);
-
-        Request request = new Request.Builder()
-                .url(OPENAI_URL)
-                .post(RequestBody.create(requestBody, JSON))
-                .addHeader("Authorization", "Bearer " + apiKey)
-                .addHeader("Content-Type", "application/json")
-                .build();
-
-        try (Response response = client.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                throw new RuntimeException(
-                        "OpenAI API Error: " + response.code() +
-                                " | " + response.message()
-                );
-            }
-
-            String raw = response.body().string();
-            try {
-                return extractCleanJson(raw);
-            } catch (Exception ex) {
-                return raw;
-            }
+        String raw = executePromptRaw(prompt);
+        try {
+            return extractCleanJson(raw);
+        } catch (Exception ex) {
+            return raw;
         }
     }
 
@@ -219,39 +165,14 @@ Return final valid JSON only.
 
     private String buildMasterRefinePrompt(String rawJson) {
         return """
-You are refining complete scraped job JSON for publishing.
+can you please analyse below json for SEO and adsence .
 
 Input JSON:
 """ + rawJson + """
 
 Rules:
 1) Return valid JSON only.
-2) Use the same master JSON structure and key names (snake_case).
-3) Analyze the full JSON and fix incorrect key-value pairing when values are assigned to wrong keys.
-4) Correct obvious key naming/normalization issues, but keep schema-compatible keys used by the input format.
-5) Improve SEO and AdSense-friendliness for user-facing text without adding spammy or misleading text.
-6) Rewrite and sanitize content-heavy fields to be concise and original:
-   - title
-   - short_description
-   - post_name
-   - conducting_body
-   - eligibility_criteria.qualification
-   - application_process
-   - selection_process
-   - important_notes
-   - syllabus_overview
-7) Do not invent factual values. If uncertain, keep original values.
-8) Preserve factual numbers, dates, links, fees, vacancies, marks, and eligibility constraints.
-9) Remove "click here", repetitive boilerplate, and low-quality filler from narrative fields.
-10) exam_scheme may contain structured objects (nested JSON), not only strings.
-11) If physical standards are available in exam_scheme.physical_standard_test text or other_tables physical table, convert to structured object format:
-   {
-     "male": { "general_bc": {...}, "other": {...} },
-     "female": { "general_bc": {...}, "other": {...} }
-   }
-   Keep values factual from input only (height/chest/weight), set missing ones to null.
-12) If you cannot confidently structure any section, keep original section unchanged.
-13) Keep `source` URL unchanged.
+ 
 """;
     }
 
@@ -355,69 +276,71 @@ Rules:
 """;
     }
 
-
-
-    private String buildRequestBody(String prompt) {
-
-        String escapedPrompt = escapeJson(prompt);
-
-        return """
-        {
-          "model": "gpt-4.1-mini",
-          "messages": [
-            {
-              "role": "system",
-              "content": "You are a professional job JSON formatter."
-            },
-            {
-              "role": "user",
-              "content": "%s"
+    private String executePromptRaw(String prompt) throws IOException {
+        List<String> models = resolveModels();
+        IOException last = null;
+        for (String model : models) {
+            try {
+                return executePromptRawWithRetries(prompt, model, maxRetries, null);
+            } catch (IOException ex) {
+                last = ex;
+                log.warn("OpenAI call failed for model {}: {}", model, ex.getMessage());
             }
-          ],
-          "temperature": 0.05,
-          "max_tokens": 6000
         }
-        """.formatted(escapedPrompt);
+        if (last != null) {
+            throw last;
+        }
+        throw new IOException("No OpenAI model configured");
     }
 
-
-    private String escapeJson(String text) {
-
-        return text
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\r", "")
-                .replace("\n", "\\n");
+    private String executePromptRawForMcq(String prompt) throws IOException {
+        List<String> models = resolveModels(mcqConfiguredModels, List.of("gpt-4.1", "gpt-4o"));
+        Map<String, Object> responseFormat = buildExamMcqResponseFormat();
+        IOException last = null;
+        for (String model : models) {
+            try {
+                return executePromptRawWithRetries(prompt, model, mcqMaxRetries, responseFormat);
+            } catch (IOException ex) {
+                last = ex;
+                log.warn("OpenAI MCQ call failed for model {}: {}", model, ex.getMessage());
+            }
+        }
+        if (last != null) {
+            throw last;
+        }
+        throw new IOException("No OpenAI MCQ model configured");
     }
 
-    public String extractCleanJson(String openAiResponse) throws Exception {
-
-        ObjectMapper mapper = new ObjectMapper();
-
-        // Parse full OpenAI response
-        JsonNode root = mapper.readTree(openAiResponse);
-
-        // Get content field
-        String content = root
-                .path("choices")
-                .get(0)
-                .path("message")
-                .path("content")
-                .asText();
-
-        // Remove markdown if present
-        content = content
-                .replace("```json", "")
-                .replace("```", "")
-                .trim();
-
-        return content;
+    private String executePromptRawWithRetries(String prompt,
+                                               String model,
+                                               int retryLimit,
+                                               Map<String, Object> responseFormat) throws IOException {
+        int attempts = Math.max(1, retryLimit);
+        IOException last = null;
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                return executePromptRawSingle(prompt, model, responseFormat);
+            } catch (OpenAiRequestException ex) {
+                last = ex;
+                if (!ex.retryable || attempt >= attempts) {
+                    throw ex;
+                }
+                sleepBeforeRetry(attempt, model, ex.getMessage());
+            } catch (IOException ex) {
+                last = ex;
+                if (attempt >= attempts) {
+                    throw ex;
+                }
+                sleepBeforeRetry(attempt, model, ex.getMessage());
+            }
+        }
+        throw last == null ? new IOException("OpenAI request failed") : last;
     }
 
-    public String generateCurrentAffairsQuizJson(LocalDate quizDate) throws Exception {
-        String prompt = buildCurrentAffairsPrompt(quizDate, 20, List.of(), DEFAULT_CURRENT_AFFAIRS_TOPICS);
-        String requestBody = buildRequestBody(prompt);
-
+    private String executePromptRawSingle(String prompt,
+                                          String model,
+                                          Map<String, Object> responseFormat) throws IOException {
+        String requestBody = buildRequestBody(prompt, model, responseFormat);
         Request request = new Request.Builder()
                 .url(OPENAI_URL)
                 .post(RequestBody.create(requestBody, JSON))
@@ -426,17 +349,351 @@ Rules:
                 .build();
 
         try (Response response = client.newCall(request).execute()) {
-
             if (!response.isSuccessful()) {
-                throw new RuntimeException(
-                        "OpenAI API Error: " + response.code() +
-                                " | " + response.message()
+                String errorBody = response.body() == null ? null : response.body().string();
+                String errorDetail = extractOpenAiErrorDetail(errorBody);
+                String message = "OpenAI API Error [model=%s, status=%d]: %s".formatted(
+                        model,
+                        response.code(),
+                        errorDetail
+                );
+                throw new OpenAiRequestException(message, response.code(), isRetryableStatus(response.code()));
+            }
+            if (response.body() == null) {
+                throw new OpenAiRequestException(
+                        "OpenAI API Error [model=%s]: empty response body".formatted(model),
+                        502,
+                        true
                 );
             }
-
-            String raw = response.body().string();
-            return extractCleanJson(raw);
+            return response.body().string();
         }
+    }
+
+    private String buildRequestBody(String prompt, String model, Map<String, Object> responseFormat) throws IOException {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("model", model);
+        payload.put("messages", List.of(
+                Map.of("role", "system", "content", "You are a professional job JSON formatter."),
+                Map.of("role", "user", "content", prompt == null ? "" : prompt)
+        ));
+        payload.put("temperature", responseFormat == null ? 0.05 : 0.0);
+        payload.put("max_tokens", MAX_TOKENS);
+        if (responseFormat != null && !responseFormat.isEmpty()) {
+            payload.put("response_format", ensureTopLevelObjectSchema(responseFormat));
+        }
+        return objectMapper.writeValueAsString(payload);
+    }
+
+    private Map<String, Object> ensureTopLevelObjectSchema(Map<String, Object> responseFormat) {
+        if (responseFormat == null || responseFormat.isEmpty()) {
+            return responseFormat;
+        }
+
+        Object jsonSchemaObj = responseFormat.get("json_schema");
+        if (!(jsonSchemaObj instanceof Map<?, ?> jsonSchemaRaw)) {
+            return responseFormat;
+        }
+
+        Map<String, Object> jsonSchema = toStringKeyMap(jsonSchemaRaw);
+        Object schemaObj = jsonSchema.get("schema");
+        if (!(schemaObj instanceof Map<?, ?> schemaRaw)) {
+            return responseFormat;
+        }
+
+        Map<String, Object> schema = toStringKeyMap(schemaRaw);
+        String rootType = trimOrNull(schema.get("type") == null ? null : String.valueOf(schema.get("type")));
+        if (!"array".equalsIgnoreCase(rootType)) {
+            return responseFormat;
+        }
+
+        // OpenAI json_schema requires top-level object; wrap legacy array schema under "questions".
+        Map<String, Object> wrappedSchema = new LinkedHashMap<>();
+        wrappedSchema.put("type", "object");
+        wrappedSchema.put("additionalProperties", false);
+        wrappedSchema.put("required", List.of("questions"));
+        wrappedSchema.put("properties", Map.of("questions", schema));
+        jsonSchema.put("schema", wrappedSchema);
+
+        Map<String, Object> sanitizedResponseFormat = new LinkedHashMap<>(responseFormat);
+        sanitizedResponseFormat.put("json_schema", jsonSchema);
+        log.warn("response_format json_schema had top-level array; auto-wrapped into object with 'questions' key.");
+        return sanitizedResponseFormat;
+    }
+
+    private Map<String, Object> toStringKeyMap(Map<?, ?> raw) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : raw.entrySet()) {
+            if (entry.getKey() instanceof String key) {
+                out.put(key, entry.getValue());
+            }
+        }
+        return out;
+    }
+
+    private List<String> resolveModels() {
+        return resolveModels(configuredModels, List.of("gpt-4.1-mini", "gpt-4o-mini"));
+    }
+
+    private List<String> resolveModels(String configured, List<String> defaults) {
+        LinkedHashSet<String> models = new LinkedHashSet<>();
+        if (configured != null) {
+            String[] parts = configured.split(",");
+            for (String part : parts) {
+                String model = trimOrNull(part);
+                if (model != null) {
+                    models.add(model);
+                }
+            }
+        }
+        if (models.isEmpty()) {
+            models.addAll(defaults);
+        }
+        return new ArrayList<>(models);
+    }
+
+    private boolean isRetryableStatus(int statusCode) {
+        return statusCode == 408
+                || statusCode == 409
+                || statusCode == 429
+                || statusCode == 500
+                || statusCode == 502
+                || statusCode == 503
+                || statusCode == 504;
+    }
+
+    private void sleepBeforeRetry(int attempt, String model, String reason) throws IOException {
+        long delay = RETRY_DELAY_BASE_MS * (1L << Math.max(0, attempt - 1));
+        long boundedDelay = Math.min(delay, 4000L);
+        log.warn("Retrying OpenAI call [model={}, attempt={}, delayMs={}] due to: {}",
+                model, attempt + 1, boundedDelay, reason);
+        try {
+            Thread.sleep(boundedDelay);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while waiting to retry OpenAI request", ex);
+        }
+    }
+
+    private Map<String, Object> buildExamMcqResponseFormat() {
+        Map<String, Object> choiceSchema = new LinkedHashMap<>();
+        choiceSchema.put("type", "object");
+        choiceSchema.put("additionalProperties", false);
+        choiceSchema.put("required", List.of("id", "text", "image"));
+        choiceSchema.put("properties", Map.of(
+                "id", Map.of("type", "integer", "minimum", 1, "maximum", 4),
+                "text", Map.of("type", "string", "minLength", 1),
+                "image", Map.of("type", "string", "minLength", 20)
+        ));
+
+        Map<String, Object> correctAnswerSchema = new LinkedHashMap<>();
+        correctAnswerSchema.put("type", "object");
+        correctAnswerSchema.put("additionalProperties", false);
+        correctAnswerSchema.put("required", List.of("choiceIds", "textAnswer"));
+        correctAnswerSchema.put("properties", Map.of(
+                "choiceIds", Map.of(
+                        "type", "array",
+                        "minItems", 1,
+                        "maxItems", 1,
+                        "items", Map.of("type", "integer", "minimum", 1, "maximum", 4)
+                ),
+                "textAnswer", Map.of("type", "string")
+        ));
+
+        Map<String, Object> explanationSchema = new LinkedHashMap<>();
+        explanationSchema.put("type", "object");
+        explanationSchema.put("additionalProperties", false);
+        explanationSchema.put("required", List.of("text", "image", "videoUrl"));
+        explanationSchema.put("properties", Map.of(
+                "text", Map.of("type", "string", "minLength", 40),
+                "image", Map.of("type", "string"),
+                "videoUrl", Map.of("type", "string")
+        ));
+
+        Map<String, Object> itemProperties = new LinkedHashMap<>();
+        itemProperties.put("questionText", Map.of("type", "string", "minLength", 12));
+        itemProperties.put("questionImage", Map.of("type", "string", "minLength", 20));
+        itemProperties.put("choices", Map.of(
+                "type", "array",
+                "minItems", 4,
+                "maxItems", 4,
+                "items", choiceSchema
+        ));
+        itemProperties.put("correctAnswer", correctAnswerSchema);
+        itemProperties.put("explanation", explanationSchema);
+
+        Map<String, Object> itemSchema = new LinkedHashMap<>();
+        itemSchema.put("type", "object");
+        itemSchema.put("additionalProperties", false);
+        itemSchema.put("required", List.of(
+                "questionText",
+                "questionImage",
+                "choices",
+                "correctAnswer",
+                "explanation"
+        ));
+        itemSchema.put("properties", itemProperties);
+
+        Map<String, Object> rootSchema = new LinkedHashMap<>();
+        rootSchema.put("type", "object");
+        rootSchema.put("additionalProperties", false);
+        rootSchema.put("required", List.of("questions"));
+        rootSchema.put("properties", Map.of(
+                "questions", Map.of(
+                        "type", "array",
+                        "minItems", 1,
+                        "items", itemSchema
+                )
+        ));
+
+        Map<String, Object> jsonSchema = new LinkedHashMap<>();
+        jsonSchema.put("name", "exam_subject_topic_mcq_generation");
+        jsonSchema.put("strict", true);
+        jsonSchema.put("schema", rootSchema);
+
+        Map<String, Object> responseFormat = new LinkedHashMap<>();
+        responseFormat.put("type", "json_schema");
+        responseFormat.put("json_schema", jsonSchema);
+        return responseFormat;
+    }
+
+    public String extractCleanJson(String openAiResponse) throws Exception {
+        if (openAiResponse == null) {
+            return null;
+        }
+        String raw = openAiResponse.trim();
+        if (raw.isBlank()) {
+            return raw;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(raw);
+            String content = extractMessageContent(root);
+            if (content != null && !content.isBlank()) {
+                return stripCodeFence(content);
+            }
+            if (root.has("error")) {
+                String detail = extractOpenAiErrorDetail(root.toString());
+                throw new IllegalArgumentException("OpenAI error payload: " + detail);
+            }
+            if (root.isArray() || root.has("questions") || root.has("title")) {
+                return stripCodeFence(root.toString());
+            }
+        } catch (IllegalArgumentException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            return stripCodeFence(raw);
+        }
+        return stripCodeFence(raw);
+    }
+
+    private String extractMessageContent(JsonNode root) {
+        if (root == null || root.isNull()) {
+            return null;
+        }
+        JsonNode choices = root.path("choices");
+        if (choices.isArray() && !choices.isEmpty()) {
+            JsonNode contentNode = choices.get(0).path("message").path("content");
+            String content = readMessageContentNode(contentNode);
+            if (content != null) {
+                return content;
+            }
+        }
+        return trimOrNull(root.path("output_text").asText(null));
+    }
+
+    private String readMessageContentNode(JsonNode contentNode) {
+        if (contentNode == null || contentNode.isMissingNode() || contentNode.isNull()) {
+            return null;
+        }
+        if (contentNode.isTextual()) {
+            return trimOrNull(contentNode.asText(null));
+        }
+        if (!contentNode.isArray()) {
+            return trimOrNull(contentNode.asText(null));
+        }
+        StringBuilder sb = new StringBuilder();
+        for (JsonNode part : contentNode) {
+            String partText;
+            if (part.isTextual()) {
+                partText = trimOrNull(part.asText(null));
+            } else {
+                partText = firstNonBlank(
+                        part.path("text").asText(null),
+                        part.path("content").asText(null),
+                        part.path("value").asText(null)
+                );
+            }
+            if (partText == null) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(partText);
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    private String stripCodeFence(String content) {
+        if (content == null) {
+            return null;
+        }
+        return content
+                .replace("```json", "")
+                .replace("```JSON", "")
+                .replace("```", "")
+                .trim();
+    }
+
+    private String extractOpenAiErrorDetail(String errorBody) {
+        String fallback = trimOrNull(errorBody);
+        if (fallback == null) {
+            return "No error body";
+        }
+        try {
+            JsonNode node = objectMapper.readTree(fallback);
+            String message = firstNonBlank(
+                    node.path("error").path("message").asText(null),
+                    node.path("message").asText(null),
+                    node.path("error").asText(null)
+            );
+            if (message != null) {
+                return message;
+            }
+        } catch (Exception ignored) {
+            // Keep plain body fallback.
+        }
+        if (fallback.length() > 500) {
+            return fallback.substring(0, 500) + "...[truncated]";
+        }
+        return fallback;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            String trimmed = trimOrNull(value);
+            if (trimmed != null) {
+                return trimmed;
+            }
+        }
+        return null;
+    }
+
+    private String trimOrNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
+    }
+
+    public String generateCurrentAffairsQuizJson(LocalDate quizDate) throws Exception {
+        String prompt = buildCurrentAffairsPrompt(quizDate, 20, List.of(), DEFAULT_CURRENT_AFFAIRS_TOPICS);
+        String raw = executePromptRaw(prompt);
+        return extractCleanJson(raw);
     }
 
     public String generateCurrentAffairsQuizJson(LocalDate quizDate, int count, List<String> avoidQuestions) throws Exception {
@@ -446,27 +703,8 @@ Rules:
     public String generateCurrentAffairsQuizJson(LocalDate quizDate, int count, List<String> avoidQuestions,
             List<String> topicAreas) throws Exception {
         String prompt = buildCurrentAffairsPrompt(quizDate, count, avoidQuestions, topicAreas);
-        String requestBody = buildRequestBody(prompt);
-
-        Request request = new Request.Builder()
-                .url(OPENAI_URL)
-                .post(RequestBody.create(requestBody, JSON))
-                .addHeader("Authorization", "Bearer " + apiKey)
-                .addHeader("Content-Type", "application/json")
-                .build();
-
-        try (Response response = client.newCall(request).execute()) {
-
-            if (!response.isSuccessful()) {
-                throw new RuntimeException(
-                        "OpenAI API Error: " + response.code() +
-                                " | " + response.message()
-                );
-            }
-
-            String raw = response.body().string();
-            return extractCleanJson(raw);
-        }
+        String raw = executePromptRaw(prompt);
+        return extractCleanJson(raw);
     }
 
     public String generateCurrentAffairsQuizQuestions(LocalDate quizDate, int count, List<String> avoidQuestions) throws Exception {
@@ -476,27 +714,8 @@ Rules:
     public String generateCurrentAffairsQuizQuestions(LocalDate quizDate, int count, List<String> avoidQuestions,
             List<String> topicAreas) throws Exception {
         String prompt = buildCurrentAffairsQuestionsOnlyPrompt(quizDate, count, avoidQuestions, topicAreas);
-        String requestBody = buildRequestBody(prompt);
-
-        Request request = new Request.Builder()
-                .url(OPENAI_URL)
-                .post(RequestBody.create(requestBody, JSON))
-                .addHeader("Authorization", "Bearer " + apiKey)
-                .addHeader("Content-Type", "application/json")
-                .build();
-
-        try (Response response = client.newCall(request).execute()) {
-
-            if (!response.isSuccessful()) {
-                throw new RuntimeException(
-                        "OpenAI API Error: " + response.code() +
-                                " | " + response.message()
-                );
-            }
-
-            String raw = response.body().string();
-            return extractCleanJson(raw);
-        }
+        String raw = executePromptRaw(prompt);
+        return extractCleanJson(raw);
     }
 
     public String generateExamSubjectTopicQuestions(String examName,
@@ -515,26 +734,8 @@ Rules:
                 language,
                 avoidQuestions
         );
-        String requestBody = buildRequestBody(prompt);
-
-        Request request = new Request.Builder()
-                .url(OPENAI_URL)
-                .post(RequestBody.create(requestBody, JSON))
-                .addHeader("Authorization", "Bearer " + apiKey)
-                .addHeader("Content-Type", "application/json")
-                .build();
-
-        try (Response response = client.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                throw new RuntimeException(
-                        "OpenAI API Error: " + response.code() +
-                                " | " + response.message()
-                );
-            }
-
-            String raw = response.body().string();
-            return extractCleanJson(raw);
-        }
+        String raw = executePromptRawForMcq(prompt);
+        return extractCleanJson(raw);
     }
 
     private String buildCurrentAffairsPrompt(LocalDate quizDate, int count, List<String> avoidQuestions,
@@ -616,10 +817,13 @@ Rules:
                                                         List<String> avoidQuestions) {
         String avoidBlock = buildAvoidQuestionsBlock(avoidQuestions);
         String safeExam = examName == null ? "" : examName.trim();
+        String examDifficultyContext = safeExam.isBlank()
+                ? "Use a competitive government-exam standard."
+                : "Use the exact difficulty standard expected in " + safeExam + " exam.";
         String safeDifficulty = difficultyLevel == null ? "Medium" : difficultyLevel.trim();
         String safeLanguage = language == null || language.isBlank() ? "HINDI" : language.trim();
         return """
-Generate exactly %d exam-ready MCQ questions as a JSON array.
+Generate exactly %d exam-ready MCQ questions as a JSON object with top-level key "questions".
 
 Context:
 - Exam Name: %s
@@ -627,26 +831,48 @@ Context:
 - Topic: %s
 - Difficulty: %s
 - Output Language: %s
+- Exam Difficulty Context: %s
 
 Rules:
-1) Return a JSON array only. No markdown, no comments, no extra text.
-2) Each item must contain exactly these keys:
-   - question
-   - options (array of exactly 4 unique string options)
-   - correct_option (must exactly match one options value)
-   - explanation (1-3 lines concise reasoning)
-3) Use Hindi language (Devanagari) for question, options, and explanation.
-4) If a question needs a visual, include an optional key `question_image_svg` with valid inline SVG markup string.
-5) If an option needs a visual, include an optional key `option_image_svgs` as array of 4 items (SVG string or null), matching options order.
+1) Return only valid JSON in this shape:
+   {"questions":[ ... ]}
+   No markdown, no comments, no extra text.
+2) Output must align with existing QuestionDto structure for persistence compatibility.
+3) Every item inside "questions" must contain exactly these keys:
+   - questionText
+   - questionImage (valid inline SVG string, mandatory)
+   - choices (array of exactly 4 objects: {id, text, image}, where image is valid inline SVG)
+   - correctAnswer ({choiceIds:[1..4], textAnswer:""})
+   - explanation ({text, image:"", videoUrl:""})
+4) Use Hindi language (Devanagari) for questionText, choices.text and explanation.text.
+5) explanation.text must be detailed (4-6 lines, exam-relevant reasoning).
 6) Every question must strictly belong to the provided subject and topic.
 7) Keep the requested difficulty level consistent for all questions in this call.
 8) Questions must be unique and non-repetitive.
 9) Avoid ambiguous or multiple-correct answers.
 10) Keep language clear for competitive exam candidates.
-11) If no image is needed, omit `question_image_svg` and `option_image_svgs`.
-12) Never repeat question stem from the avoid list. If unique questions are exhausted, return fewer items instead of duplicates.
+11) Never repeat question stem from the avoid list. If unique questions are exhausted, return fewer items instead of duplicates.
+12) Calibrate every question to the exam level of "%s" (pattern, reasoning depth, trap options, and factual granularity).
+13) Difficulty labels are relative to this exam standard:
+    - Easy: easy for %s aspirants, not beginner/school level
+    - Medium: typical %s level
+    - Hard: above typical %s level with deeper elimination and conceptual traps
+14) All SVG strings must be complete `<svg ...>...</svg>` markup and semantically relevant to the question/options.
 %s
-""".formatted(count, safeExam, subject, topic, safeDifficulty, safeLanguage, avoidBlock);
+""".formatted(
+                count,
+                safeExam,
+                subject,
+                topic,
+                safeDifficulty,
+                safeLanguage,
+                examDifficultyContext,
+                safeExam.isBlank() ? "the target exam" : safeExam,
+                safeExam.isBlank() ? "the target exam" : safeExam,
+                safeExam.isBlank() ? "the target exam" : safeExam,
+                safeExam.isBlank() ? "the target exam" : safeExam,
+                avoidBlock
+        );
     }
 
     private String buildAvoidQuestionsBlock(List<String> avoidQuestions) {
@@ -656,9 +882,22 @@ Rules:
 
         StringBuilder sb = new StringBuilder();
         sb.append("Do not repeat or paraphrase any of the following questions:\n");
-        int limit = Math.min(avoidQuestions.size(), 120);
+        int limit = Math.min(avoidQuestions.size(), MAX_AVOID_PROMPT_QUESTIONS);
+        int totalChars = 0;
         for (int i = 0; i < limit; i++) {
-            sb.append("- ").append(avoidQuestions.get(i)).append("\n");
+            String clean = trimOrNull(avoidQuestions.get(i));
+            if (clean == null) {
+                continue;
+            }
+            clean = clean.replaceAll("\\s+", " ");
+            if (clean.length() > MAX_AVOID_QUESTION_LENGTH) {
+                clean = clean.substring(0, MAX_AVOID_QUESTION_LENGTH) + "...";
+            }
+            if (totalChars + clean.length() > MAX_AVOID_PROMPT_CHARS) {
+                break;
+            }
+            sb.append("- ").append(clean).append("\n");
+            totalChars += clean.length();
         }
         return sb.toString();
     }
@@ -689,5 +928,16 @@ Rules:
             sb.append("- ").append(topic).append("\n");
         }
         return sb.toString();
+    }
+
+    private static class OpenAiRequestException extends IOException {
+        private final int statusCode;
+        private final boolean retryable;
+
+        private OpenAiRequestException(String message, int statusCode, boolean retryable) {
+            super(message);
+            this.statusCode = statusCode;
+            this.retryable = retryable;
+        }
     }
 }

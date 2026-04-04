@@ -45,8 +45,11 @@ public class AdminSyllabusQuestionService {
     private static final int DEFAULT_EASY = 20;
     private static final int DEFAULT_MEDIUM = 40;
     private static final int DEFAULT_HARD = 40;
-    private static final int MAX_ATTEMPTS_PER_DIFFICULTY = 15;
+    private static final int MAX_ATTEMPTS_PER_DIFFICULTY = 4;
+    private static final int MAX_QUESTIONS_PER_AI_CALL = 6;
     private static final int MAX_AVOID_PROMPT_QUESTIONS = 120;
+    private static final int MAX_AVOID_PROMPT_CHARS = 6000;
+    private static final int MIN_EXPLANATION_LENGTH = 40;
     private static final DateTimeFormatter CODE_TS = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final Set<String> ACRONYM_STOP_WORDS = Set.of(
             "AND", "OF", "THE", "FOR", "TO", "IN", "ON", "WITH", "A", "AN"
@@ -228,8 +231,11 @@ public class AdminSyllabusQuestionService {
         if (out.isComplete()) {
             out.setMessage("Preview generated successfully. Questions are not saved to DB.");
         } else {
+            String errorSuffix = stats.openAiFailures > 0
+                    ? " OpenAI call failures during generation: " + stats.openAiFailures + "."
+                    : "";
             out.setMessage("Preview partially generated (" + generated.size() + "/" + mix.total
-                    + "). Questions are not saved to DB. Retry to generate remaining questions.");
+                    + "). Questions are not saved to DB. Retry to generate remaining questions." + errorSuffix);
         }
         out.setQuestions(generated);
         return Optional.of(out);
@@ -264,7 +270,7 @@ public class AdminSyllabusQuestionService {
         int sequence = sequenceStart;
         while (collected < targetCount && attempts < MAX_ATTEMPTS_PER_DIFFICULTY) {
             int remaining = targetCount - collected;
-            int requestCount = Math.min(18, Math.max(8, remaining));
+            int requestCount = Math.min(remaining, MAX_QUESTIONS_PER_AI_CALL);
             List<String> avoidList = buildAvoidPromptQuestions(existingPromptQuestions, generatedPromptQuestions);
             String aiJson;
             try {
@@ -278,7 +284,11 @@ public class AdminSyllabusQuestionService {
                         avoidList
                 );
             } catch (Exception ex) {
-                throw new IllegalArgumentException("Failed to generate questions from OpenAI: " + ex.getMessage(), ex);
+                stats.openAiFailures++;
+                log.warn("OpenAI generation failed for {} difficulty on attempt {}: {}",
+                        promptDifficulty, attempts + 1, ex.getMessage());
+                attempts++;
+                continue;
             }
             log.info("OpenAI cleaned response for {} difficulty (length={}): {}",
                     promptDifficulty,
@@ -371,16 +381,30 @@ public class AdminSyllabusQuestionService {
                 if (question == null) {
                     continue;
                 }
+                String questionImageSvg = trimOrNull(firstNonBlank(
+                        node.path("question_image_svg").asText(null),
+                        node.path("questionImageSvg").asText(null),
+                        node.path("questionImage").asText(null),
+                        node.path("question_svg").asText(null),
+                        node.path("questionSvg").asText(null)
+                ));
+                if (!isValidSvg(questionImageSvg)) {
+                    continue;
+                }
 
                 List<AiOptionItem> options = extractOptions(node);
                 if (options.size() != 4) {
+                    continue;
+                }
+                if (!hasAllValidOptionSvgs(options)) {
                     continue;
                 }
 
                 String correctRaw = firstNonBlank(
                         node.path("correct_option").asText(null),
                         node.path("correctOption").asText(null),
-                        node.path("answer").asText(null)
+                        node.path("answer").asText(null),
+                        resolveCorrectOptionFromDto(node)
                 );
                 String correctOption = resolveCorrectOption(correctRaw, options);
                 if (correctOption == null) {
@@ -389,6 +413,7 @@ public class AdminSyllabusQuestionService {
 
                 String explanation = firstNonBlank(
                         node.path("explanation").asText(null),
+                        node.path("explanation").path("text").asText(null),
                         node.path("details_description").asText(null),
                         node.path("detailsDescription").asText(null),
                         node.path("explanation_text").asText(null)
@@ -399,12 +424,10 @@ public class AdminSyllabusQuestionService {
                 item.options = options;
                 item.correctOption = correctOption;
                 item.explanation = explanation == null ? "" : explanation.trim();
-                item.questionImageSvg = trimOrNull(firstNonBlank(
-                        node.path("question_image_svg").asText(null),
-                        node.path("questionImageSvg").asText(null),
-                        node.path("question_svg").asText(null),
-                        node.path("questionSvg").asText(null)
-                ));
+                if (!hasDetailedExplanation(item.explanation)) {
+                    continue;
+                }
+                item.questionImageSvg = questionImageSvg;
                 out.add(item);
             }
             return out;
@@ -439,6 +462,18 @@ public class AdminSyllabusQuestionService {
             }
         }
 
+        String salvagedQuestionsObject = salvageTruncatedQuestionsObject(raw);
+        if (salvagedQuestionsObject != null) {
+            try {
+                objectMapper.readTree(salvagedQuestionsObject);
+                log.info("OpenAI response salvaged by rebuilding truncated questions object (originalLength={}, salvagedLength={})",
+                        raw.length(), salvagedQuestionsObject.length());
+                return salvagedQuestionsObject;
+            } catch (Exception ignored) {
+                // continue with array salvage
+            }
+        }
+
         String salvaged = salvageTruncatedArray(raw);
         if (salvaged != null) {
             try {
@@ -453,6 +488,36 @@ public class AdminSyllabusQuestionService {
         return raw;
     }
 
+    private String salvageTruncatedQuestionsObject(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        if (!trimmed.startsWith("{")) {
+            return null;
+        }
+
+        int questionsKey = trimmed.indexOf("\"questions\"");
+        if (questionsKey < 0) {
+            return null;
+        }
+        int arrayStart = trimmed.indexOf('[', questionsKey);
+        if (arrayStart < 0) {
+            return null;
+        }
+
+        int lastObjectClose = findLastCompleteObjectEndInArray(trimmed, arrayStart);
+        if (lastObjectClose < 0) {
+            return null;
+        }
+
+        String questionsBody = trimmed.substring(arrayStart + 1, lastObjectClose + 1).trim();
+        if (questionsBody.isBlank()) {
+            return null;
+        }
+        return "{\"questions\":[" + questionsBody + "]}";
+    }
+
     private String salvageTruncatedArray(String raw) {
         if (raw == null) {
             return null;
@@ -462,26 +527,69 @@ public class AdminSyllabusQuestionService {
             return null;
         }
 
-        int lastObjectClose = trimmed.lastIndexOf('}');
+        int lastObjectClose = findLastCompleteObjectEndInArray(trimmed, 0);
         if (lastObjectClose < 1) {
             return null;
         }
-        String candidate = trimmed.substring(0, lastObjectClose + 1).trim();
-        if (candidate.endsWith(",")) {
-            candidate = candidate.substring(0, candidate.length() - 1).trim();
+        String arrayBody = trimmed.substring(1, lastObjectClose + 1).trim();
+        if (arrayBody.isBlank()) {
+            return null;
         }
-        if (!candidate.startsWith("[")) {
-            candidate = "[" + candidate;
+        return "[" + arrayBody + "]";
+    }
+
+    private int findLastCompleteObjectEndInArray(String text, int arrayStart) {
+        if (text == null || arrayStart < 0 || arrayStart >= text.length() || text.charAt(arrayStart) != '[') {
+            return -1;
         }
-        if (!candidate.endsWith("]")) {
-            candidate = candidate + "]";
+        boolean inString = false;
+        boolean escape = false;
+        int objectDepth = 0;
+        int lastObjectEnd = -1;
+
+        for (int i = arrayStart + 1; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (inString) {
+                if (escape) {
+                    escape = false;
+                } else if (ch == '\\') {
+                    escape = true;
+                } else if (ch == '"') {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (ch == '"') {
+                inString = true;
+                continue;
+            }
+            if (ch == '{') {
+                objectDepth++;
+                continue;
+            }
+            if (ch == '}') {
+                if (objectDepth > 0) {
+                    objectDepth--;
+                    if (objectDepth == 0) {
+                        lastObjectEnd = i;
+                    }
+                }
+                continue;
+            }
+            if (ch == ']' && objectDepth == 0) {
+                break;
+            }
         }
-        return candidate;
+        return lastObjectEnd;
     }
 
     private List<AiOptionItem> extractOptions(JsonNode node) {
         List<AiOptionItem> out = new ArrayList<>();
         JsonNode optionsNode = node.get("options");
+        if (optionsNode == null || optionsNode.isNull() || optionsNode.isMissingNode()) {
+            optionsNode = node.get("choices");
+        }
         if (optionsNode != null && optionsNode.isArray()) {
             JsonNode optionSvgs = node.path("option_image_svgs");
             for (int i = 0; i < optionsNode.size(); i++) {
@@ -497,6 +605,7 @@ public class AdminSyllabusQuestionService {
                     imageSvg = trimOrNull(firstNonBlank(
                             opt.path("image_svg").asText(null),
                             opt.path("imageSvg").asText(null),
+                            opt.path("image").asText(null),
                             opt.path("svg").asText(null)
                     ));
                 } else if (opt != null) {
@@ -575,12 +684,81 @@ public class AdminSyllabusQuestionService {
             }
         }
 
+        String alpha = raw.toUpperCase(Locale.ROOT).replaceAll("[^A-Z]", "");
+        if (!alpha.isBlank()) {
+            char first = alpha.charAt(0);
+            if (first >= 'A' && first <= 'D') {
+                int index = (first - 'A') + 1;
+                if (index >= 1 && index <= options.size()) {
+                    return options.get(index - 1).text;
+                }
+            }
+        }
+
         for (AiOptionItem option : options) {
             if (option.text != null && option.text.equalsIgnoreCase(raw)) {
                 return option.text;
             }
         }
         return null;
+    }
+
+    private String resolveCorrectOptionFromDto(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        JsonNode correctAnswer = node.path("correctAnswer");
+        if (!correctAnswer.isObject()) {
+            correctAnswer = node.path("correct_answer");
+        }
+        if (!correctAnswer.isObject()) {
+            return null;
+        }
+        JsonNode choiceIds = correctAnswer.path("choiceIds");
+        if (!choiceIds.isArray() || choiceIds.isEmpty()) {
+            choiceIds = correctAnswer.path("choice_ids");
+        }
+        if (!choiceIds.isArray() || choiceIds.isEmpty()) {
+            return null;
+        }
+        JsonNode first = choiceIds.get(0);
+        if (first == null) {
+            return null;
+        }
+        if (first.isNumber()) {
+            return String.valueOf(first.intValue());
+        }
+        String raw = trimOrNull(first.asText(null));
+        if (raw == null) {
+            return null;
+        }
+        return raw;
+    }
+
+    private boolean hasAllValidOptionSvgs(List<AiOptionItem> options) {
+        if (options == null || options.isEmpty()) {
+            return false;
+        }
+        for (AiOptionItem option : options) {
+            if (option == null || !isValidSvg(option.imageSvg)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isValidSvg(String svg) {
+        String normalized = trimOrNull(svg);
+        if (normalized == null) {
+            return false;
+        }
+        String lowered = normalized.toLowerCase(Locale.ROOT);
+        return lowered.contains("<svg") && lowered.contains("</svg>");
+    }
+
+    private boolean hasDetailedExplanation(String explanation) {
+        String value = trimOrNull(explanation);
+        return value != null && value.length() >= MIN_EXPLANATION_LENGTH;
     }
 
     private QuestionDto toQuestionDto(AiQuestionItem item,
@@ -904,6 +1082,7 @@ public class AdminSyllabusQuestionService {
     private List<String> buildAvoidPromptQuestions(List<String> existingPromptQuestions,
                                                    List<String> generatedPromptQuestions) {
         List<String> combined = new ArrayList<>();
+        int totalChars = 0;
         if (generatedPromptQuestions != null && !generatedPromptQuestions.isEmpty()) {
             int fromIndex = Math.max(0, generatedPromptQuestions.size() - MAX_AVOID_PROMPT_QUESTIONS);
             for (int i = generatedPromptQuestions.size() - 1; i >= fromIndex; i--) {
@@ -911,8 +1090,13 @@ public class AdminSyllabusQuestionService {
                 if (text == null) {
                     continue;
                 }
-                combined.add(text);
-                if (combined.size() >= MAX_AVOID_PROMPT_QUESTIONS) {
+                String compact = text.replaceAll("\\s+", " ");
+                if (totalChars + compact.length() > MAX_AVOID_PROMPT_CHARS && !combined.isEmpty()) {
+                    break;
+                }
+                combined.add(compact);
+                totalChars += compact.length();
+                if (combined.size() >= MAX_AVOID_PROMPT_QUESTIONS || totalChars >= MAX_AVOID_PROMPT_CHARS) {
                     return combined;
                 }
             }
@@ -926,8 +1110,13 @@ public class AdminSyllabusQuestionService {
             if (text == null) {
                 continue;
             }
-            combined.add(text);
-            if (combined.size() >= MAX_AVOID_PROMPT_QUESTIONS) {
+            String compact = text.replaceAll("\\s+", " ");
+            if (totalChars + compact.length() > MAX_AVOID_PROMPT_CHARS && !combined.isEmpty()) {
+                break;
+            }
+            combined.add(compact);
+            totalChars += compact.length();
+            if (combined.size() >= MAX_AVOID_PROMPT_QUESTIONS || totalChars >= MAX_AVOID_PROMPT_CHARS) {
                 break;
             }
         }
@@ -1070,5 +1259,6 @@ public class AdminSyllabusQuestionService {
     private static class GenerationStats {
         private int skippedExistingDuplicates = 0;
         private int skippedGeneratedDuplicates = 0;
+        private int openAiFailures = 0;
     }
 }

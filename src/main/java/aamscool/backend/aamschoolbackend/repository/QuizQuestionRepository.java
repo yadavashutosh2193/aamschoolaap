@@ -15,4 +15,7 @@ public interface QuizQuestionRepository extends JpaRepository<QuizQuestion, Long
 
     @Query("select qq.question.id from QuizQuestion qq where qq.quiz.id in :quizIds")
     List<Long> findQuestionIdsByQuizIdIn(@Param("quizIds") List<Long> quizIds);
+
+    @Query("select qq.quiz.id, qq.question.id from QuizQuestion qq where qq.quiz.id in :quizIds")
+    List<Object[]> findQuizIdAndQuestionIdByQuizIdIn(@Param("quizIds") List<Long> quizIds);
 }

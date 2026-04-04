@@ -20,6 +20,7 @@ public class QuizGenerateRequest {
     private Integer hardCount;
     private Integer marks;
     private Double negativeMarks;
+    private String quizType;
     private String createdBy;
     private Integer quizCount;
 
@@ -157,6 +158,14 @@ public class QuizGenerateRequest {
 
     public void setCreatedBy(String createdBy) {
         this.createdBy = createdBy;
+    }
+
+    public String getQuizType() {
+        return quizType;
+    }
+
+    public void setQuizType(String quizType) {
+        this.quizType = quizType;
     }
 
     public Integer getQuizCount() {

@@ -12,6 +12,8 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 
 @Entity
 @Table(name = "quiz")
@@ -32,6 +34,9 @@ public class Quiz {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "exam_id")
     private Exam exam;
+
+    @Enumerated(EnumType.STRING)
+    private QuizType quizType;
 
     private Integer totalQuestions;
     private Integer totalMarks;
@@ -88,6 +93,14 @@ public class Quiz {
 
     public void setExam(Exam exam) {
         this.exam = exam;
+    }
+
+    public QuizType getQuizType() {
+        return quizType;
+    }
+
+    public void setQuizType(QuizType quizType) {
+        this.quizType = quizType;
     }
 
     public Integer getTotalQuestions() {
