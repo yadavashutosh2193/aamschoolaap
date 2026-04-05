@@ -5,6 +5,8 @@ import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,9 +21,11 @@ import aamscool.backend.aamschoolbackend.dto.ExamSyllabusMasterDto;
 import aamscool.backend.aamschoolbackend.dto.ExamSyllabusSummaryDto;
 import aamscool.backend.aamschoolbackend.dto.ExamTestSeriesOverviewDto;
 import aamscool.backend.aamschoolbackend.dto.AdminQuestionGenerationRequestDto;
+import aamscool.backend.aamschoolbackend.dto.AdminSyllabusBatchGenerationRequestDto;
 import aamscool.backend.aamschoolbackend.service.AdminSyllabusQuestionService;
 import aamscool.backend.aamschoolbackend.service.ExamSyllabusService;
 import aamscool.backend.aamschoolbackend.service.ExamTestSeriesService;
+import aamscool.backend.aamschoolbackend.service.McqGenerationArtifactService;
 
 @RestController
 @RequestMapping("/api/syllabus")
@@ -30,13 +34,16 @@ public class ExamSyllabusController {
     private final ExamSyllabusService examSyllabusService;
     private final ExamTestSeriesService examTestSeriesService;
     private final AdminSyllabusQuestionService adminSyllabusQuestionService;
+    private final McqGenerationArtifactService mcqGenerationArtifactService;
 
     public ExamSyllabusController(ExamSyllabusService examSyllabusService,
                                   ExamTestSeriesService examTestSeriesService,
-                                  AdminSyllabusQuestionService adminSyllabusQuestionService) {
+                                  AdminSyllabusQuestionService adminSyllabusQuestionService,
+                                  McqGenerationArtifactService mcqGenerationArtifactService) {
         this.examSyllabusService = examSyllabusService;
         this.examTestSeriesService = examTestSeriesService;
         this.adminSyllabusQuestionService = adminSyllabusQuestionService;
+        this.mcqGenerationArtifactService = mcqGenerationArtifactService;
     }
 
     @GetMapping("/latest")
@@ -133,6 +140,26 @@ public class ExamSyllabusController {
                         "status", "error",
                         "message", "Syllabus not found for exam key"
                 )));
+    }
+
+    @PostMapping("/admin/question-bank/generate-and-save/{examKey}")
+    public ResponseEntity<?> adminGenerateAndSaveQuestionBank(@PathVariable("examKey") String examKey,
+                                                              @RequestBody(required = false) AdminSyllabusBatchGenerationRequestDto request) {
+        return adminSyllabusQuestionService.generateAndSaveAllByExamKey(examKey, request)
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                        "status", "error",
+                        "message", "Syllabus not found for exam key"
+                )));
+    }
+
+    @GetMapping(value = "/admin/question-bank/artifacts/{artifactId}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> adminDownloadGeneratedQuestionArtifact(@PathVariable("artifactId") String artifactId) {
+        byte[] content = mcqGenerationArtifactService.readArtifact(artifactId);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + artifactId + "\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(content);
     }
 
     @PostMapping("/admin/test-series/generate/{examKey}")

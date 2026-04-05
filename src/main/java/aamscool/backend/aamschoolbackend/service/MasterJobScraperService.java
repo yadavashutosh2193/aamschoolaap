@@ -49,6 +49,17 @@ public class MasterJobScraperService {
             "play.google.com", "youtube.com", "t.me", "telegram", "whatsapp.com",
             "facebook.com", "instagram.com"
     );
+    private static final List<String> AD_SENSE_UNSAFE_PHRASES = List.of(
+            "guaranteed selection",
+            "100% selection",
+            "100% guarantee",
+            "hurry up",
+            "last chance",
+            "urgent vacancy",
+            "instant joining",
+            "apply now!!!",
+            "don't miss"
+    );
     private final OpenAIService openAIService;
     private final ObjectMapper objectMapper;
 
@@ -102,6 +113,8 @@ public class MasterJobScraperService {
         if (aiEnhance) {
             enhanceWithAi(dto);
         }
+        finalizeResponse(dto);
+        applySeoAndAdsensePolish(dto);
         applyVacancyResponseShape(dto, includeLegacyPostWise);
 
         return dto;
@@ -2754,6 +2767,190 @@ public class MasterJobScraperService {
             }
         }
         dto.setApplicationProcess(cleanedSteps);
+    }
+
+    private void applySeoAndAdsensePolish(MasterJobResponseDto dto) {
+        if (dto == null) {
+            return;
+        }
+
+        String title = sanitizeSeoText(dto.getTitle(), true);
+        if (title == null || title.length() < 35) {
+            title = buildSeoTitleFallback(dto);
+        }
+        if (title != null && title.length() > 110) {
+            title = trimToWordBoundary(title, 110);
+        }
+        dto.setTitle(title);
+
+        String shortDescription = sanitizeSeoText(dto.getShortDescription(), false);
+        if (shortDescription == null || shortDescription.length() < 90) {
+            shortDescription = buildSeoDescriptionFallback(dto);
+        }
+        if (shortDescription != null && shortDescription.length() > 260) {
+            shortDescription = trimToWordBoundary(shortDescription, 260);
+        }
+        dto.setShortDescription(shortDescription);
+
+        dto.setImportantNotes(cleanAndLimitLines(dto.getImportantNotes(), 8, 220));
+        dto.setApplicationProcess(cleanAndLimitLines(dto.getApplicationProcess(), 8, 220));
+    }
+
+    private String buildSeoTitleFallback(MasterJobResponseDto dto) {
+        String postName = clean(safe(dto.getPostName()));
+        String body = clean(safe(dto.getConductingBody()));
+        String adv = clean(safe(dto.getAdvertisementNo()));
+        String year = null;
+        if (dto.getDateUpdated() != null && dto.getDateUpdated().matches(".*\\b\\d{4}\\b.*")) {
+            year = dto.getDateUpdated().replaceAll(".*?(\\d{4}).*", "$1");
+        } else if (dto.getDatePosted() != null && dto.getDatePosted().matches(".*\\b\\d{4}\\b.*")) {
+            year = dto.getDatePosted().replaceAll(".*?(\\d{4}).*", "$1");
+        }
+
+        List<String> parts = new ArrayList<>();
+        if (body != null && !body.isBlank()) {
+            parts.add(body);
+        }
+        if (postName != null && !postName.isBlank()) {
+            parts.add(postName);
+        } else if (dto.getTitle() != null && !dto.getTitle().isBlank()) {
+            parts.add(clean(dto.getTitle()));
+        }
+        if (year != null && !year.isBlank()) {
+            parts.add(year);
+        }
+        if (adv != null && !adv.isBlank()) {
+            parts.add("Advt " + adv);
+        }
+        String joined = String.join(" ");
+        String normalized = sanitizeSeoText(joined, true);
+        if (normalized == null || normalized.isBlank()) {
+            return sanitizeSeoText(dto.getTitle(), true);
+        }
+        return trimToWordBoundary(normalized, 110);
+    }
+
+    private String buildSeoDescriptionFallback(MasterJobResponseDto dto) {
+        String title = sanitizeSeoText(dto.getTitle(), true);
+        String postName = sanitizeSeoText(dto.getPostName(), false);
+        String body = sanitizeSeoText(dto.getConductingBody(), false);
+        String lastDate = getImportantDateString(dto,
+                "online apply last date",
+                "online application last date",
+                "last date");
+        String applyLink = getOfficialLinkString(dto, "apply_online", "apply online");
+
+        StringBuilder sb = new StringBuilder();
+        if (title != null && !title.isBlank()) {
+            sb.append(title).append(". ");
+        }
+        if (postName != null && !postName.isBlank() && (title == null || !lower(title).contains(lower(postName)))) {
+            sb.append("Post: ").append(postName).append(". ");
+        }
+        if (body != null && !body.isBlank()) {
+            sb.append("Conducting body: ").append(body).append(". ");
+        }
+        if (lastDate != null && !lastDate.isBlank()) {
+            sb.append("Apply before ").append(lastDate).append(". ");
+        }
+        if (applyLink != null && !applyLink.isBlank()) {
+            sb.append("Check official apply link and notification for exact details.");
+        } else {
+            sb.append("Check official notification for exact eligibility, fee and process.");
+        }
+
+        String out = sanitizeSeoText(sb.toString(), false);
+        if (out == null) {
+            return null;
+        }
+        if (out.length() < 120) {
+            out = out + " Selection and eligibility are subject to official rules.";
+        }
+        return trimToWordBoundary(out, 260);
+    }
+
+    private List<String> cleanAndLimitLines(List<String> lines, int maxItems, int maxCharsPerItem) {
+        List<String> out = new ArrayList<>();
+        if (lines == null || lines.isEmpty()) {
+            return out;
+        }
+        for (String line : lines) {
+            String cleanLine = sanitizeSeoText(line, false);
+            if (cleanLine == null || cleanLine.isBlank()) {
+                continue;
+            }
+            if (cleanLine.length() > maxCharsPerItem) {
+                cleanLine = trimToWordBoundary(cleanLine, maxCharsPerItem);
+            }
+            out.add(cleanLine);
+            if (out.size() >= maxItems) {
+                break;
+            }
+        }
+        return out;
+    }
+
+    private String sanitizeSeoText(String input, boolean titleMode) {
+        if (input == null) {
+            return null;
+        }
+        String value = clean(input);
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        for (String phrase : AD_SENSE_UNSAFE_PHRASES) {
+            value = value.replaceAll("(?i)\\b" + Pattern.quote(phrase) + "\\b", " ");
+        }
+        value = value.replaceAll("(?i)\\bclick\\s+here\\b", " ");
+        value = value.replaceAll("!{2,}", "!");
+        value = value.replaceAll("[\\r\\n]+", " ");
+        value = value.replaceAll("\\s{2,}", " ").trim();
+        value = value.replaceAll("^[\\-:|,\\s]+", "").replaceAll("[\\-:|,\\s]+$", "");
+
+        if (titleMode) {
+            value = value.replaceAll("(?i)\\b(apply now|hurry|urgent)\\b", "");
+            value = value.replaceAll("\\s{2,}", " ").trim();
+            if (!value.isBlank() && value.equals(value.toUpperCase(Locale.ROOT)) && value.length() > 8) {
+                value = toTitleCase(value.toLowerCase(Locale.ROOT));
+            }
+        }
+        return value.isBlank() ? null : value;
+    }
+
+    private String toTitleCase(String text) {
+        if (text == null || text.isBlank()) {
+            return text;
+        }
+        String[] parts = text.split("\\s+");
+        StringBuilder sb = new StringBuilder();
+        for (String part : parts) {
+            if (part.isBlank()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            if (part.length() == 1) {
+                sb.append(part.toUpperCase(Locale.ROOT));
+            } else {
+                sb.append(part.substring(0, 1).toUpperCase(Locale.ROOT))
+                        .append(part.substring(1));
+            }
+        }
+        return sb.toString();
+    }
+
+    private String trimToWordBoundary(String text, int maxLen) {
+        if (text == null || text.length() <= maxLen) {
+            return text;
+        }
+        String slice = text.substring(0, Math.max(1, maxLen));
+        int cut = slice.lastIndexOf(' ');
+        if (cut < 40) {
+            return slice.trim();
+        }
+        return slice.substring(0, cut).trim();
     }
 
     private void populateVacancyFallbackFromOtherTables(MasterJobResponseDto dto) {

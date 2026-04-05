@@ -43,15 +43,18 @@ public class ExamTestSeriesService {
     private final QuizRepository quizRepository;
     private final QuizQuestionRepository quizQuestionRepository;
     private final QuestionRepository questionRepository;
+    private final AdminAlertService adminAlertService;
 
     public ExamTestSeriesService(ExamSyllabusService examSyllabusService,
                                  QuizRepository quizRepository,
                                  QuizQuestionRepository quizQuestionRepository,
-                                 QuestionRepository questionRepository) {
+                                 QuestionRepository questionRepository,
+                                 AdminAlertService adminAlertService) {
         this.examSyllabusService = examSyllabusService;
         this.quizRepository = quizRepository;
         this.quizQuestionRepository = quizQuestionRepository;
         this.questionRepository = questionRepository;
+        this.adminAlertService = adminAlertService;
     }
 
     public List<ExamTestSeriesOverviewDto> getOverviewForAllExams() {
@@ -76,227 +79,211 @@ public class ExamTestSeriesService {
     }
 
     public Optional<ExamTestSeriesOverviewDto> getOverviewByExamKey(String examKey) {
-        Optional<GenerationContext> contextOpt = buildContext(examKey);
-        if (contextOpt.isEmpty()) {
-            return Optional.empty();
-        }
+        try {
+            Optional<GenerationContext> contextOpt = buildContext(examKey);
+            if (contextOpt.isEmpty()) {
+                return Optional.empty();
+            }
 
-        GenerationContext context = contextOpt.get();
-        int fullAdditional = computeAdditionalCapacity(
-                copyQueue(context.fullEasyPool),
-                copyQueue(context.fullMediumPool),
-                copyQueue(context.fullHardPool),
-                context.fullEasyPerSeries,
-                context.fullMediumPerSeries,
-                context.fullHardPerSeries
-        );
-        int pyqAdditional = computeAdditionalCapacity(
-                copyQueue(context.pyqEasyPool),
-                copyQueue(context.pyqMediumPool),
-                copyQueue(context.pyqHardPool),
-                context.pyqEasyPerSeries,
-                context.pyqMediumPerSeries,
-                context.pyqHardPerSeries
-        );
+            GenerationContext context = contextOpt.get();
+            int fullAdditional = computeAdditionalCapacityBySubject(copySubjectSeriesContexts(context.fullSubjectContexts));
+            int pyqAdditional = computeAdditionalCapacityBySubject(copySubjectSeriesContexts(context.pyqSubjectContexts));
 
-        int sectionalGenerated = 0;
-        int sectionalAdditional = 0;
-        for (SectionalContext sectional : context.sectionalContexts) {
-            sectionalGenerated += sectional.generatedSeriesCount;
-            sectionalAdditional += computeAdditionalCapacity(
-                    copyQueue(sectional.easyPool),
-                    copyQueue(sectional.mediumPool),
-                    copyQueue(sectional.hardPool),
-                    sectional.easyPerSeries,
-                    sectional.mediumPerSeries,
-                    sectional.hardPerSeries
+            int sectionalGenerated = 0;
+            int sectionalAdditional = 0;
+            for (SectionalContext sectional : context.sectionalContexts) {
+                sectionalGenerated += sectional.generatedSeriesCount;
+                sectionalAdditional += computeAdditionalCapacity(
+                        copyQueue(sectional.easyPool),
+                        copyQueue(sectional.mediumPool),
+                        copyQueue(sectional.hardPool),
+                        sectional.easyPerSeries,
+                        sectional.mediumPerSeries,
+                        sectional.hardPerSeries
+                );
+            }
+
+            int generatedAll = context.fullGeneratedSeriesCount + sectionalGenerated + context.pyqGeneratedSeriesCount;
+            int additionalAll = fullAdditional + sectionalAdditional + pyqAdditional;
+
+            ExamTestSeriesOverviewDto dto = new ExamTestSeriesOverviewDto();
+            dto.setExamCode(context.examCode);
+            dto.setExamName(context.examName);
+            dto.setMatchedQuestionExamName(context.matchedQuestionExamName);
+            dto.setMatchedQuestionExamId(context.matchedQuestionExamId);
+            dto.setGeneratedSeriesCount(generatedAll);
+            dto.setAdditionalGeneratableSeriesCount(additionalAll);
+            dto.setTotalGeneratableSeriesCount(generatedAll + additionalAll);
+            dto.setQuestionsPerSeries(context.totalQuestionsPerSeries);
+
+            dto.setGeneratedFullTestCount(context.fullGeneratedSeriesCount);
+            dto.setGeneratedSectionalTestCount(sectionalGenerated);
+            dto.setGeneratedPyqTestCount(context.pyqGeneratedSeriesCount);
+            dto.setAdditionalGeneratableFullTestCount(fullAdditional);
+            dto.setAdditionalGeneratableSectionalTestCount(sectionalAdditional);
+            dto.setAdditionalGeneratablePyqTestCount(pyqAdditional);
+            dto.setTotalGeneratableFullTestCount(context.fullGeneratedSeriesCount + fullAdditional);
+            dto.setTotalGeneratableSectionalTestCount(sectionalGenerated + sectionalAdditional);
+            dto.setTotalGeneratablePyqTestCount(context.pyqGeneratedSeriesCount + pyqAdditional);
+            return Optional.of(dto);
+        } catch (RuntimeException ex) {
+            adminAlertService.sendFailureAlert(
+                    "Test-Series Overview Failure [" + safeExamKey(examKey) + "]",
+                    "Exam Key: " + safeExamKey(examKey) + "\n"
+                            + "Failure: " + safeErrorMessage(ex)
             );
+            throw ex;
         }
-
-        int generatedAll = context.fullGeneratedSeriesCount + sectionalGenerated + context.pyqGeneratedSeriesCount;
-        int additionalAll = fullAdditional + sectionalAdditional + pyqAdditional;
-
-        ExamTestSeriesOverviewDto dto = new ExamTestSeriesOverviewDto();
-        dto.setExamCode(context.examCode);
-        dto.setExamName(context.examName);
-        dto.setMatchedQuestionExamName(context.matchedQuestionExamName);
-        dto.setMatchedQuestionExamId(context.matchedQuestionExamId);
-        dto.setGeneratedSeriesCount(generatedAll);
-        dto.setAdditionalGeneratableSeriesCount(additionalAll);
-        dto.setTotalGeneratableSeriesCount(generatedAll + additionalAll);
-        dto.setQuestionsPerSeries(context.totalQuestionsPerSeries);
-
-        dto.setGeneratedFullTestCount(context.fullGeneratedSeriesCount);
-        dto.setGeneratedSectionalTestCount(sectionalGenerated);
-        dto.setGeneratedPyqTestCount(context.pyqGeneratedSeriesCount);
-        dto.setAdditionalGeneratableFullTestCount(fullAdditional);
-        dto.setAdditionalGeneratableSectionalTestCount(sectionalAdditional);
-        dto.setAdditionalGeneratablePyqTestCount(pyqAdditional);
-        dto.setTotalGeneratableFullTestCount(context.fullGeneratedSeriesCount + fullAdditional);
-        dto.setTotalGeneratableSectionalTestCount(sectionalGenerated + sectionalAdditional);
-        dto.setTotalGeneratablePyqTestCount(context.pyqGeneratedSeriesCount + pyqAdditional);
-        return Optional.of(dto);
     }
 
     @Transactional
     public Optional<ExamTestSeriesGenerateResponseDto> generateAllPossibleByExamKey(String examKey) {
-        Optional<GenerationContext> contextOpt = buildContext(examKey);
-        if (contextOpt.isEmpty()) {
-            return Optional.empty();
-        }
-
-        GenerationContext context = contextOpt.get();
-        List<Long> createdFull = new ArrayList<>();
-        List<Long> createdSectional = new ArrayList<>();
-        List<Long> createdPyq = new ArrayList<>();
-
-        int nextFullSet = context.fullGeneratedSeriesCount + 1;
-        while (true) {
-            List<Question> selected = pickOneSeriesQuestions(
-                    context.fullEasyPool, context.fullMediumPool, context.fullHardPool,
-                    context.fullEasyPerSeries, context.fullMediumPerSeries, context.fullHardPerSeries
-            );
-            if (selected == null) {
-                break;
+        try {
+            Optional<GenerationContext> contextOpt = buildContext(examKey);
+            if (contextOpt.isEmpty()) {
+                return Optional.empty();
             }
-            Quiz saved = createSeriesQuiz(
-                    context.examSubjectKey,
-                    QuizType.FULL_TEST,
-                    buildFullSeriesTitle(context.examName, nextFullSet),
-                    buildFullSubTopic(nextFullSet),
-                    context.totalQuestionsPerSeries,
-                    context.totalMarks,
-                    context.durationMinutes,
-                    context.markPerQuestion,
-                    context.negativeMarkPerQuestion,
-                    selected
-            );
-            createdFull.add(saved.getId());
-            context.fullGeneratedSeriesCount++;
-            nextFullSet++;
-        }
 
-        for (SectionalContext sectional : context.sectionalContexts) {
-            int nextSet = sectional.generatedSeriesCount + 1;
+            GenerationContext context = contextOpt.get();
+            List<Long> createdFull = new ArrayList<>();
+            List<Long> createdSectional = new ArrayList<>();
+            List<Long> createdPyq = new ArrayList<>();
+
+            int nextFullSet = context.fullGeneratedSeriesCount + 1;
             while (true) {
-                List<Question> selected = pickOneSeriesQuestions(
-                        sectional.easyPool, sectional.mediumPool, sectional.hardPool,
-                        sectional.easyPerSeries, sectional.mediumPerSeries, sectional.hardPerSeries
-                );
+                List<Question> selected = pickOneSeriesQuestionsBySubject(context.fullSubjectContexts);
                 if (selected == null) {
                     break;
                 }
                 Quiz saved = createSeriesQuiz(
                         context.examSubjectKey,
-                        QuizType.SECTIONAL_TEST,
-                        buildSectionalSeriesTitle(context.examName, sectional.subjectName, nextSet),
-                        buildSectionalSubTopic(sectional.subjectName, nextSet),
-                        sectional.questionsPerSeries,
-                        sectional.totalMarks,
-                        sectional.durationMinutes,
+                        QuizType.FULL_TEST,
+                        buildFullSeriesTitle(context.examName, nextFullSet),
+                        buildFullSubTopic(nextFullSet),
+                        context.totalQuestionsPerSeries,
+                        context.totalMarks,
+                        context.durationMinutes,
                         context.markPerQuestion,
                         context.negativeMarkPerQuestion,
                         selected
                 );
-                createdSectional.add(saved.getId());
-                sectional.generatedSeriesCount++;
-                nextSet++;
+                createdFull.add(saved.getId());
+                context.fullGeneratedSeriesCount++;
+                nextFullSet++;
             }
-        }
 
-        int nextPyqSet = context.pyqGeneratedSeriesCount + 1;
-        while (true) {
-            List<Question> selected = pickOneSeriesQuestions(
-                    context.pyqEasyPool, context.pyqMediumPool, context.pyqHardPool,
-                    context.pyqEasyPerSeries, context.pyqMediumPerSeries, context.pyqHardPerSeries
-            );
-            if (selected == null) {
-                break;
+            for (SectionalContext sectional : context.sectionalContexts) {
+                int nextSet = sectional.generatedSeriesCount + 1;
+                while (true) {
+                    List<Question> selected = pickOneSeriesQuestions(
+                            sectional.easyPool, sectional.mediumPool, sectional.hardPool,
+                            sectional.easyPerSeries, sectional.mediumPerSeries, sectional.hardPerSeries
+                    );
+                    if (selected == null) {
+                        break;
+                    }
+                    Quiz saved = createSeriesQuiz(
+                            context.examSubjectKey,
+                            QuizType.SECTIONAL_TEST,
+                            buildSectionalSeriesTitle(context.examName, sectional.subjectName, nextSet),
+                            buildSectionalSubTopic(sectional.subjectName, nextSet),
+                            sectional.questionsPerSeries,
+                            sectional.totalMarks,
+                            sectional.durationMinutes,
+                            context.markPerQuestion,
+                            context.negativeMarkPerQuestion,
+                            selected
+                    );
+                    createdSectional.add(saved.getId());
+                    sectional.generatedSeriesCount++;
+                    nextSet++;
+                }
             }
-            Quiz saved = createSeriesQuiz(
-                    context.examSubjectKey,
-                    QuizType.PYQ_TEST,
-                    buildPyqSeriesTitle(context.examName, nextPyqSet),
-                    buildPyqSubTopic(nextPyqSet),
-                    context.totalQuestionsPerSeries,
-                    context.totalMarks,
-                    context.durationMinutes,
-                    context.markPerQuestion,
-                    context.negativeMarkPerQuestion,
-                    selected
+
+            int nextPyqSet = context.pyqGeneratedSeriesCount + 1;
+            while (true) {
+                List<Question> selected = pickOneSeriesQuestionsBySubject(context.pyqSubjectContexts);
+                if (selected == null) {
+                    break;
+                }
+                Quiz saved = createSeriesQuiz(
+                        context.examSubjectKey,
+                        QuizType.PYQ_TEST,
+                        buildPyqSeriesTitle(context.examName, nextPyqSet),
+                        buildPyqSubTopic(nextPyqSet),
+                        context.totalQuestionsPerSeries,
+                        context.totalMarks,
+                        context.durationMinutes,
+                        context.markPerQuestion,
+                        context.negativeMarkPerQuestion,
+                        selected
+                );
+                createdPyq.add(saved.getId());
+                context.pyqGeneratedSeriesCount++;
+                nextPyqSet++;
+            }
+
+            int fullAdditionalAfter = computeAdditionalCapacityBySubject(copySubjectSeriesContexts(context.fullSubjectContexts));
+            int pyqAdditionalAfter = computeAdditionalCapacityBySubject(copySubjectSeriesContexts(context.pyqSubjectContexts));
+
+            int sectionalGeneratedAfter = 0;
+            int sectionalAdditionalAfter = 0;
+            for (SectionalContext sectional : context.sectionalContexts) {
+                sectionalGeneratedAfter += sectional.generatedSeriesCount;
+                sectionalAdditionalAfter += computeAdditionalCapacity(
+                        copyQueue(sectional.easyPool),
+                        copyQueue(sectional.mediumPool),
+                        copyQueue(sectional.hardPool),
+                        sectional.easyPerSeries,
+                        sectional.mediumPerSeries,
+                        sectional.hardPerSeries
+                );
+            }
+
+            int generatedAllAfter = context.fullGeneratedSeriesCount + sectionalGeneratedAfter + context.pyqGeneratedSeriesCount;
+            int additionalAllAfter = fullAdditionalAfter + sectionalAdditionalAfter + pyqAdditionalAfter;
+
+            List<Long> createdAll = new ArrayList<>();
+            createdAll.addAll(createdFull);
+            createdAll.addAll(createdSectional);
+            createdAll.addAll(createdPyq);
+
+            ExamTestSeriesGenerateResponseDto response = new ExamTestSeriesGenerateResponseDto();
+            response.setExamCode(context.examCode);
+            response.setExamName(context.examName);
+            response.setMatchedQuestionExamName(context.matchedQuestionExamName);
+            response.setMatchedQuestionExamId(context.matchedQuestionExamId);
+            response.setQuestionsPerSeries(context.totalQuestionsPerSeries);
+            response.setGeneratedNow(createdAll.size());
+            response.setGeneratedTotalAfterRun(generatedAllAfter);
+            response.setTotalGeneratableSeriesCount(generatedAllAfter + additionalAllAfter);
+            response.setAdditionalGeneratableAfterRun(additionalAllAfter);
+            response.setCreatedQuizIds(createdAll);
+
+            response.setGeneratedNowFullTestCount(createdFull.size());
+            response.setGeneratedNowSectionalTestCount(createdSectional.size());
+            response.setGeneratedNowPyqTestCount(createdPyq.size());
+            response.setGeneratedTotalFullTestAfterRun(context.fullGeneratedSeriesCount);
+            response.setGeneratedTotalSectionalTestAfterRun(sectionalGeneratedAfter);
+            response.setGeneratedTotalPyqTestAfterRun(context.pyqGeneratedSeriesCount);
+            response.setAdditionalGeneratableFullTestAfterRun(fullAdditionalAfter);
+            response.setAdditionalGeneratableSectionalTestAfterRun(sectionalAdditionalAfter);
+            response.setAdditionalGeneratablePyqTestAfterRun(pyqAdditionalAfter);
+            response.setCreatedFullTestQuizIds(createdFull);
+            response.setCreatedSectionalTestQuizIds(createdSectional);
+            response.setCreatedPyqTestQuizIds(createdPyq);
+            response.setMessage(createdAll.isEmpty()
+                    ? "No additional Full/Sectional/PYQ test series can be generated with current question bank."
+                    : "Generated available Full, Sectional, and PYQ test series.");
+            return Optional.of(response);
+        } catch (RuntimeException ex) {
+            adminAlertService.sendFailureAlert(
+                    "Test-Series Generation Failure [" + safeExamKey(examKey) + "]",
+                    "Exam Key: " + safeExamKey(examKey) + "\n"
+                            + "Failure: " + safeErrorMessage(ex)
             );
-            createdPyq.add(saved.getId());
-            context.pyqGeneratedSeriesCount++;
-            nextPyqSet++;
+            throw ex;
         }
-
-        int fullAdditionalAfter = computeAdditionalCapacity(
-                copyQueue(context.fullEasyPool),
-                copyQueue(context.fullMediumPool),
-                copyQueue(context.fullHardPool),
-                context.fullEasyPerSeries,
-                context.fullMediumPerSeries,
-                context.fullHardPerSeries
-        );
-        int pyqAdditionalAfter = computeAdditionalCapacity(
-                copyQueue(context.pyqEasyPool),
-                copyQueue(context.pyqMediumPool),
-                copyQueue(context.pyqHardPool),
-                context.pyqEasyPerSeries,
-                context.pyqMediumPerSeries,
-                context.pyqHardPerSeries
-        );
-
-        int sectionalGeneratedAfter = 0;
-        int sectionalAdditionalAfter = 0;
-        for (SectionalContext sectional : context.sectionalContexts) {
-            sectionalGeneratedAfter += sectional.generatedSeriesCount;
-            sectionalAdditionalAfter += computeAdditionalCapacity(
-                    copyQueue(sectional.easyPool),
-                    copyQueue(sectional.mediumPool),
-                    copyQueue(sectional.hardPool),
-                    sectional.easyPerSeries,
-                    sectional.mediumPerSeries,
-                    sectional.hardPerSeries
-            );
-        }
-
-        int generatedAllAfter = context.fullGeneratedSeriesCount + sectionalGeneratedAfter + context.pyqGeneratedSeriesCount;
-        int additionalAllAfter = fullAdditionalAfter + sectionalAdditionalAfter + pyqAdditionalAfter;
-
-        List<Long> createdAll = new ArrayList<>();
-        createdAll.addAll(createdFull);
-        createdAll.addAll(createdSectional);
-        createdAll.addAll(createdPyq);
-
-        ExamTestSeriesGenerateResponseDto response = new ExamTestSeriesGenerateResponseDto();
-        response.setExamCode(context.examCode);
-        response.setExamName(context.examName);
-        response.setMatchedQuestionExamName(context.matchedQuestionExamName);
-        response.setMatchedQuestionExamId(context.matchedQuestionExamId);
-        response.setQuestionsPerSeries(context.totalQuestionsPerSeries);
-        response.setGeneratedNow(createdAll.size());
-        response.setGeneratedTotalAfterRun(generatedAllAfter);
-        response.setTotalGeneratableSeriesCount(generatedAllAfter + additionalAllAfter);
-        response.setAdditionalGeneratableAfterRun(additionalAllAfter);
-        response.setCreatedQuizIds(createdAll);
-
-        response.setGeneratedNowFullTestCount(createdFull.size());
-        response.setGeneratedNowSectionalTestCount(createdSectional.size());
-        response.setGeneratedNowPyqTestCount(createdPyq.size());
-        response.setGeneratedTotalFullTestAfterRun(context.fullGeneratedSeriesCount);
-        response.setGeneratedTotalSectionalTestAfterRun(sectionalGeneratedAfter);
-        response.setGeneratedTotalPyqTestAfterRun(context.pyqGeneratedSeriesCount);
-        response.setAdditionalGeneratableFullTestAfterRun(fullAdditionalAfter);
-        response.setAdditionalGeneratableSectionalTestAfterRun(sectionalAdditionalAfter);
-        response.setAdditionalGeneratablePyqTestAfterRun(pyqAdditionalAfter);
-        response.setCreatedFullTestQuizIds(createdFull);
-        response.setCreatedSectionalTestQuizIds(createdSectional);
-        response.setCreatedPyqTestQuizIds(createdPyq);
-        response.setMessage(createdAll.isEmpty()
-                ? "No additional Full/Sectional/PYQ test series can be generated with current question bank."
-                : "Generated available Full, Sectional, and PYQ test series.");
-        return Optional.of(response);
     }
 
     private Optional<GenerationContext> buildContext(String examKey) {
@@ -328,8 +315,12 @@ public class ExamTestSeriesService {
 
         List<Quiz> existingAll = fetchExistingSeries(context.examCode, context.examName);
         Map<Long, Set<Long>> usedQuestionIdsByQuiz = loadQuestionIdsByQuiz(existingAll);
-        Map<String, List<Question>> mappedBySubject = fetchMappedQuestionsBySubject(blueprint);
-        Map<String, Integer> sectionalQuestionTargets = extractSectionalQuestionTargets(blueprint);
+        Map<String, List<Question>> mappedBySubject =
+                fetchMappedQuestionsBySubject(blueprint, context.matchedQuestionExamId);
+        Map<String, Integer> fullSubjectQuestionTargets = extractSubjectQuestionTargets(blueprint);
+        Map<String, Integer> sectionalQuestionTargets = extractSubjectQuestionTargets(blueprint);
+        Map<String, Integer> sectionalMarksTargets = extractSubjectMarksTargets(blueprint);
+        Map<String, String> normalizedSubjectToOriginal = buildSubjectNameMap(mappedBySubject);
 
         List<Quiz> existingFull = filterByFormat(existingAll, QuizType.FULL_TEST);
         List<Quiz> existingSectional = filterByFormat(existingAll, QuizType.SECTIONAL_TEST);
@@ -338,25 +329,113 @@ public class ExamTestSeriesService {
         context.fullGeneratedSeriesCount = existingFull.size();
         context.pyqGeneratedSeriesCount = existingPyq.size();
 
+        if (fullSubjectQuestionTargets.isEmpty()) {
+            throw new IllegalArgumentException("Syllabus subject-wise question distribution is required for strict test-series generation.");
+        }
+        int configuredFullTotal = 0;
+        for (Integer value : fullSubjectQuestionTargets.values()) {
+            if (value != null && value > 0) {
+                configuredFullTotal += value;
+            }
+        }
+        if (configuredFullTotal != context.totalQuestionsPerSeries) {
+            throw new IllegalArgumentException("Syllabus subject question totals (" + configuredFullTotal
+                    + ") do not match exam_pattern.total_questions (" + context.totalQuestionsPerSeries + ").");
+        }
+
         Set<Long> usedByFull = collectUsedQuestionIds(existingFull, usedQuestionIdsByQuiz);
-        List<Question> fullPool = flattenQuestions(mappedBySubject, usedByFull, false);
-        DifficultyMix fullMix = calculateDifficultyMix(context.totalQuestionsPerSeries);
-        context.fullEasyPerSeries = fullMix.easy;
-        context.fullMediumPerSeries = fullMix.medium;
-        context.fullHardPerSeries = fullMix.hard;
-        populateDifficultyPools(fullPool, context.fullEasyPool, context.fullMediumPool, context.fullHardPool);
+        List<String> missingFullSubjects = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : fullSubjectQuestionTargets.entrySet()) {
+            String subjectKey = entry.getKey();
+            Integer targetQuestions = entry.getValue();
+            if (targetQuestions == null || targetQuestions <= 0) {
+                continue;
+            }
+            String subjectName = normalizedSubjectToOriginal.get(subjectKey);
+            if (subjectName == null) {
+                missingFullSubjects.add(subjectKey);
+                continue;
+            }
+            List<Question> subjectQuestions = mappedBySubject.get(subjectName);
+            if (subjectQuestions == null || subjectQuestions.isEmpty()) {
+                missingFullSubjects.add(subjectName);
+                continue;
+            }
+
+            List<Question> remaining = new ArrayList<>();
+            for (Question q : subjectQuestions) {
+                if (q != null && q.getId() != null && !usedByFull.contains(q.getId())) {
+                    remaining.add(q);
+                }
+            }
+
+            DifficultyMix mix = calculateDifficultyMix(targetQuestions);
+            SubjectSeriesContext fullSubjectContext = new SubjectSeriesContext();
+            fullSubjectContext.subjectName = subjectName;
+            fullSubjectContext.questionsPerSeries = targetQuestions;
+            fullSubjectContext.easyPerSeries = mix.easy;
+            fullSubjectContext.mediumPerSeries = mix.medium;
+            fullSubjectContext.hardPerSeries = mix.hard;
+            populateDifficultyPools(remaining, fullSubjectContext.easyPool, fullSubjectContext.mediumPool, fullSubjectContext.hardPool);
+            context.fullSubjectContexts.add(fullSubjectContext);
+        }
+        if (!missingFullSubjects.isEmpty()) {
+            throw new IllegalArgumentException("Syllabus subjects missing mapped question pool: " + String.join(", ", missingFullSubjects));
+        }
+        int fullSeriesQuestionTotal = 0;
+        for (SubjectSeriesContext fullSubjectContext : context.fullSubjectContexts) {
+            fullSeriesQuestionTotal += fullSubjectContext.questionsPerSeries;
+        }
+        if (fullSeriesQuestionTotal != context.totalQuestionsPerSeries) {
+            throw new IllegalArgumentException("Computed full-test composition does not match total_questions. expected="
+                    + context.totalQuestionsPerSeries + ", actual=" + fullSeriesQuestionTotal);
+        }
 
         Set<Long> usedByPyq = collectUsedQuestionIds(existingPyq, usedQuestionIdsByQuiz);
-        List<Question> pyqPool = flattenQuestions(mappedBySubject, usedByPyq, true);
-        DifficultyMix pyqMix = calculateDifficultyMix(context.totalQuestionsPerSeries);
-        context.pyqEasyPerSeries = pyqMix.easy;
-        context.pyqMediumPerSeries = pyqMix.medium;
-        context.pyqHardPerSeries = pyqMix.hard;
-        populateDifficultyPools(pyqPool, context.pyqEasyPool, context.pyqMediumPool, context.pyqHardPool);
+        for (Map.Entry<String, Integer> entry : fullSubjectQuestionTargets.entrySet()) {
+            String subjectKey = entry.getKey();
+            Integer targetQuestions = entry.getValue();
+            if (targetQuestions == null || targetQuestions <= 0) {
+                continue;
+            }
+            String subjectName = normalizedSubjectToOriginal.get(subjectKey);
+            if (subjectName == null) {
+                continue;
+            }
+            List<Question> subjectQuestions = mappedBySubject.get(subjectName);
+            if (subjectQuestions == null || subjectQuestions.isEmpty()) {
+                continue;
+            }
 
-        for (Map.Entry<String, List<Question>> entry : mappedBySubject.entrySet()) {
-            String subjectName = entry.getKey();
-            List<Question> subjectQuestions = entry.getValue();
+            List<Question> remainingPyq = new ArrayList<>();
+            for (Question q : subjectQuestions) {
+                if (q == null || q.getId() == null || usedByPyq.contains(q.getId())) {
+                    continue;
+                }
+                if (!isPyqQuestion(q)) {
+                    continue;
+                }
+                remainingPyq.add(q);
+            }
+
+            DifficultyMix mix = calculateDifficultyMix(targetQuestions);
+            SubjectSeriesContext pyqSubjectContext = new SubjectSeriesContext();
+            pyqSubjectContext.subjectName = subjectName;
+            pyqSubjectContext.questionsPerSeries = targetQuestions;
+            pyqSubjectContext.easyPerSeries = mix.easy;
+            pyqSubjectContext.mediumPerSeries = mix.medium;
+            pyqSubjectContext.hardPerSeries = mix.hard;
+            populateDifficultyPools(remainingPyq, pyqSubjectContext.easyPool, pyqSubjectContext.mediumPool, pyqSubjectContext.hardPool);
+            context.pyqSubjectContexts.add(pyqSubjectContext);
+        }
+
+        for (Map.Entry<String, Integer> targetEntry : sectionalQuestionTargets.entrySet()) {
+            String subjectKey = targetEntry.getKey();
+            String subjectName = normalizedSubjectToOriginal.get(subjectKey);
+            if (subjectName == null) {
+                continue;
+            }
+            List<Question> subjectQuestions = mappedBySubject.get(subjectName);
             if (subjectQuestions == null || subjectQuestions.isEmpty()) {
                 continue;
             }
@@ -375,7 +454,7 @@ public class ExamTestSeriesService {
                 }
             }
 
-            int configured = sectionalQuestionTargets.getOrDefault(normalizeKey(subjectName), 0);
+            int configured = targetEntry.getValue() == null ? 0 : targetEntry.getValue();
             int questionsPerSeries = resolveSectionalQuestionsPerSeries(
                     configured,
                     context.totalQuestionsPerSeries,
@@ -389,7 +468,10 @@ public class ExamTestSeriesService {
             SectionalContext sectional = new SectionalContext();
             sectional.subjectName = subjectName;
             sectional.questionsPerSeries = questionsPerSeries;
-            sectional.totalMarks = (int) Math.round(context.markPerQuestion * questionsPerSeries);
+            Integer configuredSectionalMarks = sectionalMarksTargets.get(subjectKey);
+            sectional.totalMarks = configuredSectionalMarks != null && configuredSectionalMarks > 0
+                    ? configuredSectionalMarks
+                    : (int) Math.round(context.markPerQuestion * questionsPerSeries);
             sectional.durationMinutes = resolveSectionalDuration(
                     context.durationMinutes,
                     context.totalQuestionsPerSeries,
@@ -477,7 +559,8 @@ public class ExamTestSeriesService {
         return used;
     }
 
-    private Map<String, List<Question>> fetchMappedQuestionsBySubject(ExamSyllabusTestSeriesBlueprintDto blueprint) {
+    private Map<String, List<Question>> fetchMappedQuestionsBySubject(ExamSyllabusTestSeriesBlueprintDto blueprint,
+                                                                      Long examId) {
         Map<String, SubjectQuestionBucket> normalizedBuckets = new LinkedHashMap<>();
         if (blueprint.getPapers() == null) {
             return new LinkedHashMap<>();
@@ -502,7 +585,10 @@ public class ExamTestSeriesService {
                 List<String> topics = subject.getNormalizedTopics() == null ? List.of() : subject.getNormalizedTopics();
 
                 if (topics.isEmpty()) {
-                    for (Question q : questionRepository.findBySubject(subjectName)) {
+                    List<Question> subjectQuestions = examId == null
+                            ? questionRepository.findBySubject(subjectName)
+                            : questionRepository.findBySubjectAndExamId(subjectName, examId);
+                    for (Question q : subjectQuestions) {
                         if (q == null || q.getId() == null) {
                             continue;
                         }
@@ -516,7 +602,10 @@ public class ExamTestSeriesService {
                     if (topicName == null || topicName.isBlank()) {
                         continue;
                     }
-                    for (Question q : questionRepository.findBySubjectAndTopic(subjectName, topicName)) {
+                    List<Question> mappedQuestions = examId == null
+                            ? questionRepository.findBySubjectAndTopic(subjectName, topicName)
+                            : questionRepository.findBySubjectAndTopicAndExamId(subjectName, topicName, examId);
+                    for (Question q : mappedQuestions) {
                         if (q == null || q.getId() == null) {
                             continue;
                         }
@@ -535,7 +624,7 @@ public class ExamTestSeriesService {
         return out;
     }
 
-    private Map<String, Integer> extractSectionalQuestionTargets(ExamSyllabusTestSeriesBlueprintDto blueprint) {
+    private Map<String, Integer> extractSubjectQuestionTargets(ExamSyllabusTestSeriesBlueprintDto blueprint) {
         Map<String, Integer> out = new LinkedHashMap<>();
         if (blueprint.getPapers() == null) {
             return out;
@@ -556,8 +645,47 @@ public class ExamTestSeriesService {
                 if (target == null || target <= 0) {
                     continue;
                 }
-                out.putIfAbsent(normalizeKey(subjectName), target);
+                out.merge(normalizeKey(subjectName), target, Integer::sum);
             }
+        }
+        return out;
+    }
+
+    private Map<String, Integer> extractSubjectMarksTargets(ExamSyllabusTestSeriesBlueprintDto blueprint) {
+        Map<String, Integer> out = new LinkedHashMap<>();
+        if (blueprint.getPapers() == null) {
+            return out;
+        }
+        for (ExamSyllabusTestSeriesBlueprintDto.PaperBlueprintDto paper : blueprint.getPapers()) {
+            if (paper == null || paper.getSubjects() == null) {
+                continue;
+            }
+            for (ExamSyllabusTestSeriesBlueprintDto.SubjectBlueprintDto subject : paper.getSubjects()) {
+                if (subject == null) {
+                    continue;
+                }
+                String subjectName = safe(subject.getSubjectName());
+                if (subjectName == null || subjectName.isBlank()) {
+                    continue;
+                }
+                Integer marks = subject.getSyllabusMarks();
+                if (marks == null || marks <= 0) {
+                    continue;
+                }
+                out.merge(normalizeKey(subjectName), marks, Integer::sum);
+            }
+        }
+        return out;
+    }
+
+    private Map<String, String> buildSubjectNameMap(Map<String, List<Question>> mappedBySubject) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (String subjectName : mappedBySubject.keySet()) {
+            String safeName = safe(subjectName);
+            if (safeName == null || safeName.isBlank()) {
+                continue;
+            }
+            out.putIfAbsent(normalizeKey(safeName), safeName);
         }
         return out;
     }
@@ -599,12 +727,16 @@ public class ExamTestSeriesService {
     }
 
     private int resolveSectionalQuestionsPerSeries(int configuredQuestions, int fullTotalQuestions, int available) {
+        if (available <= 0) {
+            return 0;
+        }
+        if (configuredQuestions > 0) {
+            return Math.min(configuredQuestions, available);
+        }
         if (available < MIN_SECTIONAL_QUESTIONS) {
             return 0;
         }
-        int target = configuredQuestions > 0
-                ? configuredQuestions
-                : Math.min(DEFAULT_SECTIONAL_QUESTIONS, Math.max(MIN_SECTIONAL_QUESTIONS, fullTotalQuestions / 2));
+        int target = Math.min(DEFAULT_SECTIONAL_QUESTIONS, Math.max(MIN_SECTIONAL_QUESTIONS, fullTotalQuestions / 2));
         if (target > available) {
             target = available;
         }
@@ -682,6 +814,53 @@ public class ExamTestSeriesService {
             out.add(hardPool.pollFirst());
         }
         return out;
+    }
+
+    private int computeAdditionalCapacityBySubject(List<SubjectSeriesContext> contexts) {
+        if (contexts == null || contexts.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        while (true) {
+            List<Question> picked = pickOneSeriesQuestionsBySubject(contexts);
+            if (picked == null) {
+                break;
+            }
+            count++;
+        }
+        return count;
+    }
+
+    private List<Question> pickOneSeriesQuestionsBySubject(List<SubjectSeriesContext> contexts) {
+        if (contexts == null || contexts.isEmpty()) {
+            return null;
+        }
+        int totalSize = 0;
+        for (SubjectSeriesContext context : contexts) {
+            if (context == null || context.questionsPerSeries <= 0) {
+                return null;
+            }
+            if (context.easyPool.size() < context.easyPerSeries
+                    || context.mediumPool.size() < context.mediumPerSeries
+                    || context.hardPool.size() < context.hardPerSeries) {
+                return null;
+            }
+            totalSize += context.questionsPerSeries;
+        }
+
+        List<Question> selected = new ArrayList<>(totalSize);
+        for (SubjectSeriesContext context : contexts) {
+            for (int i = 0; i < context.easyPerSeries; i++) {
+                selected.add(context.easyPool.pollFirst());
+            }
+            for (int i = 0; i < context.mediumPerSeries; i++) {
+                selected.add(context.mediumPool.pollFirst());
+            }
+            for (int i = 0; i < context.hardPerSeries; i++) {
+                selected.add(context.hardPool.pollFirst());
+            }
+        }
+        return selected;
     }
 
     private Quiz createSeriesQuiz(String examSubject,
@@ -812,6 +991,29 @@ public class ExamTestSeriesService {
         return new ArrayDeque<>(source);
     }
 
+    private List<SubjectSeriesContext> copySubjectSeriesContexts(List<SubjectSeriesContext> source) {
+        List<SubjectSeriesContext> out = new ArrayList<>();
+        if (source == null || source.isEmpty()) {
+            return out;
+        }
+        for (SubjectSeriesContext item : source) {
+            if (item == null) {
+                continue;
+            }
+            SubjectSeriesContext copy = new SubjectSeriesContext();
+            copy.subjectName = item.subjectName;
+            copy.questionsPerSeries = item.questionsPerSeries;
+            copy.easyPerSeries = item.easyPerSeries;
+            copy.mediumPerSeries = item.mediumPerSeries;
+            copy.hardPerSeries = item.hardPerSeries;
+            copy.easyPool = copyQueue(item.easyPool);
+            copy.mediumPool = copyQueue(item.mediumPool);
+            copy.hardPool = copyQueue(item.hardPool);
+            out.add(copy);
+        }
+        return out;
+    }
+
     private String firstNonBlank(String first, String second) {
         String a = safe(first);
         if (a != null && !a.isBlank()) {
@@ -822,6 +1024,22 @@ public class ExamTestSeriesService {
 
     private String safe(String value) {
         return value == null ? null : value.trim();
+    }
+
+    private String safeExamKey(String value) {
+        String safe = safe(value);
+        return safe == null ? "N/A" : safe;
+    }
+
+    private String safeErrorMessage(RuntimeException ex) {
+        if (ex == null) {
+            return "Unknown runtime error";
+        }
+        String message = safe(ex.getMessage());
+        if (message == null) {
+            message = ex.getClass().getSimpleName();
+        }
+        return message.length() > 500 ? message.substring(0, 500) + "...[truncated]" : message;
     }
 
     private String normalizeKey(String value) {
@@ -860,6 +1078,17 @@ public class ExamTestSeriesService {
         private ArrayDeque<Question> hardPool = new ArrayDeque<>();
     }
 
+    private static class SubjectSeriesContext {
+        private String subjectName;
+        private int questionsPerSeries;
+        private int easyPerSeries;
+        private int mediumPerSeries;
+        private int hardPerSeries;
+        private ArrayDeque<Question> easyPool = new ArrayDeque<>();
+        private ArrayDeque<Question> mediumPool = new ArrayDeque<>();
+        private ArrayDeque<Question> hardPool = new ArrayDeque<>();
+    }
+
     private static class GenerationContext {
         private String examCode;
         private String examName;
@@ -889,6 +1118,8 @@ public class ExamTestSeriesService {
         private ArrayDeque<Question> pyqMediumPool = new ArrayDeque<>();
         private ArrayDeque<Question> pyqHardPool = new ArrayDeque<>();
 
+        private List<SubjectSeriesContext> fullSubjectContexts = new ArrayList<>();
+        private List<SubjectSeriesContext> pyqSubjectContexts = new ArrayList<>();
         private List<SectionalContext> sectionalContexts = new ArrayList<>();
     }
 

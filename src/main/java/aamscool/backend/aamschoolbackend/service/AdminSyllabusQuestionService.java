@@ -20,12 +20,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import aamscool.backend.aamschoolbackend.dto.AdminQuestionGenerationPreviewDto;
 import aamscool.backend.aamschoolbackend.dto.AdminQuestionGenerationRequestDto;
+import aamscool.backend.aamschoolbackend.dto.AdminSyllabusBatchGenerationRequestDto;
+import aamscool.backend.aamschoolbackend.dto.AdminSyllabusBatchGenerationResponseDto;
 import aamscool.backend.aamschoolbackend.dto.AdminSyllabusQuestionCoverageDto;
 import aamscool.backend.aamschoolbackend.dto.AttemptStatsDto;
 import aamscool.backend.aamschoolbackend.dto.CorrectAnswerDto;
 import aamscool.backend.aamschoolbackend.dto.ExamSyllabusDetailDto;
 import aamscool.backend.aamschoolbackend.dto.ExamSyllabusMasterDto;
+import aamscool.backend.aamschoolbackend.dto.ExamTestSeriesGenerateResponseDto;
 import aamscool.backend.aamschoolbackend.dto.ExplanationDto;
+import aamscool.backend.aamschoolbackend.dto.QuestionBulkUpsertResult;
 import aamscool.backend.aamschoolbackend.dto.QuestionChoiceDto;
 import aamscool.backend.aamschoolbackend.dto.QuestionDto;
 import aamscool.backend.aamschoolbackend.dto.SourceDto;
@@ -45,11 +49,14 @@ public class AdminSyllabusQuestionService {
     private static final int DEFAULT_EASY = 20;
     private static final int DEFAULT_MEDIUM = 40;
     private static final int DEFAULT_HARD = 40;
-    private static final int MAX_ATTEMPTS_PER_DIFFICULTY = 4;
-    private static final int MAX_QUESTIONS_PER_AI_CALL = 6;
+    private static final int MAX_ATTEMPTS_PER_DIFFICULTY = 10;
+    private static final int MAX_QUESTIONS_PER_AI_CALL = 12;
+    private static final int MINI_ONLY_ATTEMPTS_PER_DIFFICULTY = 2;
+    private static final int MAX_AUTO_REFINE_ROUNDS = 4;
     private static final int MAX_AVOID_PROMPT_QUESTIONS = 120;
     private static final int MAX_AVOID_PROMPT_CHARS = 6000;
-    private static final int MIN_EXPLANATION_LENGTH = 40;
+    private static final int MIN_EXPLANATION_LENGTH = 28;
+    private static final int MIN_QUESTION_LENGTH = 12;
     private static final DateTimeFormatter CODE_TS = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final Set<String> ACRONYM_STOP_WORDS = Set.of(
             "AND", "OF", "THE", "FOR", "TO", "IN", "ON", "WITH", "A", "AN"
@@ -60,17 +67,29 @@ public class AdminSyllabusQuestionService {
     private final QuestionRepository questionRepository;
     private final OpenAIService openAIService;
     private final ObjectMapper objectMapper;
+    private final QuestionService questionService;
+    private final ExamTestSeriesService examTestSeriesService;
+    private final AdminAlertService adminAlertService;
+    private final McqGenerationArtifactService mcqGenerationArtifactService;
 
     public AdminSyllabusQuestionService(ExamSyllabusService examSyllabusService,
                                         ExamRepository examRepository,
                                         QuestionRepository questionRepository,
                                         OpenAIService openAIService,
-                                        ObjectMapper objectMapper) {
+                                        ObjectMapper objectMapper,
+                                        QuestionService questionService,
+                                        ExamTestSeriesService examTestSeriesService,
+                                        AdminAlertService adminAlertService,
+                                        McqGenerationArtifactService mcqGenerationArtifactService) {
         this.examSyllabusService = examSyllabusService;
         this.examRepository = examRepository;
         this.questionRepository = questionRepository;
         this.openAIService = openAIService;
         this.objectMapper = objectMapper;
+        this.questionService = questionService;
+        this.examTestSeriesService = examTestSeriesService;
+        this.adminAlertService = adminAlertService;
+        this.mcqGenerationArtifactService = mcqGenerationArtifactService;
     }
 
     public Optional<AdminSyllabusQuestionCoverageDto> getCoverageByExamKey(String examKey) {
@@ -162,6 +181,7 @@ public class AdminSyllabusQuestionService {
         if (createdBy == null) {
             createdBy = "OPENAI_ADMIN_PREVIEW";
         }
+        String qualityHint = trimOrNull(request.getQualityHint());
 
         Optional<Exam> matchedExam = resolveQuestionExam(syllabus);
         Long matchedExamId = matchedExam.map(Exam::getId).orElse(null);
@@ -172,6 +192,8 @@ public class AdminSyllabusQuestionService {
         );
         String examCodeForQuestions = trimOrNull(syllabus.getExamCode());
         String examTag = toExamTag(examCodeForQuestions, examNameForQuestions);
+        String examBindingName = matchedExam.map(Exam::getName)
+                .orElse(firstNonBlank(examTag, examNameForQuestions));
 
         List<String> existingTexts = questionRepository.findQuestionTextsBySubjectAndTopic(subjectNode.subjectName, matchedTopic);
         long existingInExam = matchedExamId == null
@@ -201,15 +223,18 @@ public class AdminSyllabusQuestionService {
         sequence = generateForDifficulty(generated, generatedNormalized, existingNormalized,
                 existingPromptQuestions, generatedPromptQuestions, stats,
                 examNameForQuestions, subjectNode.subjectName, matchedTopic,
-                requestedSubTopic, examTag, "Easy", "EASY", mix.easy, language, marks, negativeMarks, isPremium, createdBy, sequence);
+                requestedSubTopic, examTag, examBindingName,
+                "Easy", "EASY", mix.easy, language, marks, negativeMarks, isPremium, createdBy, qualityHint, sequence);
         sequence = generateForDifficulty(generated, generatedNormalized, existingNormalized,
                 existingPromptQuestions, generatedPromptQuestions, stats,
                 examNameForQuestions, subjectNode.subjectName, matchedTopic,
-                requestedSubTopic, examTag, "Medium", "MEDIUM", mix.medium, language, marks, negativeMarks, isPremium, createdBy, sequence);
+                requestedSubTopic, examTag, examBindingName,
+                "Medium", "MEDIUM", mix.medium, language, marks, negativeMarks, isPremium, createdBy, qualityHint, sequence);
         generateForDifficulty(generated, generatedNormalized, existingNormalized,
                 existingPromptQuestions, generatedPromptQuestions, stats,
                 examNameForQuestions, subjectNode.subjectName, matchedTopic,
-                requestedSubTopic, examTag, "Hard", "HARD", mix.hard, language, marks, negativeMarks, isPremium, createdBy, sequence);
+                requestedSubTopic, examTag, examBindingName,
+                "Hard", "HARD", mix.hard, language, marks, negativeMarks, isPremium, createdBy, qualityHint, sequence);
 
         AdminQuestionGenerationPreviewDto out = new AdminQuestionGenerationPreviewDto();
         out.setExamCode(trimOrNull(syllabus.getExamCode()));
@@ -241,6 +266,367 @@ public class AdminSyllabusQuestionService {
         return Optional.of(out);
     }
 
+    public Optional<AdminSyllabusBatchGenerationResponseDto> generateAndSaveAllByExamKey(
+            String examKey,
+            AdminSyllabusBatchGenerationRequestDto request) {
+        try {
+        Optional<ExamSyllabusDetailDto> detailOpt = examSyllabusService.getByExamKey(examKey);
+        if (detailOpt.isEmpty()) {
+            return Optional.empty();
+        }
+
+        ExamSyllabusMasterDto syllabus = detailOpt.get().getSyllabus();
+        Map<String, SubjectTopicNode> subjectTopicIndex = buildSubjectTopicIndex(syllabus);
+        if (subjectTopicIndex.isEmpty()) {
+            throw new IllegalArgumentException("No subjects/topics found in this syllabus");
+        }
+
+        AdminSyllabusBatchGenerationRequestDto effective =
+                request == null ? new AdminSyllabusBatchGenerationRequestDto() : request;
+        Set<String> requestedSubjectKeys = new LinkedHashSet<>();
+        if (effective.getSubjects() != null) {
+            for (String subject : effective.getSubjects()) {
+                String normalized = normalizeLookupKey(subject);
+                if (!normalized.isBlank()) {
+                    requestedSubjectKeys.add(normalized);
+                }
+            }
+        }
+
+        AdminQuestionGenerationRequestDto template = new AdminQuestionGenerationRequestDto();
+        template.setTotalQuestions(effective.getTotalQuestionsPerTopic());
+        template.setEasyCount(effective.getEasyCount());
+        template.setMediumCount(effective.getMediumCount());
+        template.setHardCount(effective.getHardCount());
+        template.setLanguage(effective.getLanguage());
+        template.setMarks(effective.getMarks());
+        template.setNegativeMarks(effective.getNegativeMarks());
+        template.setIsPremium(effective.getIsPremium());
+        template.setCreatedBy(effective.getCreatedBy());
+
+        DifficultyMix mix = resolveDifficultyMix(template);
+        Language language = resolveLanguage(template.getLanguage());
+        Integer marks = template.getMarks() == null ? 1 : template.getMarks();
+        Double negativeMarks = template.getNegativeMarks() == null ? 0.0 : template.getNegativeMarks();
+        Boolean isPremium = template.getIsPremium() == null ? Boolean.FALSE : template.getIsPremium();
+        String createdBy = trimOrNull(template.getCreatedBy());
+        if (createdBy == null) {
+            createdBy = "OPENAI_ADMIN_BATCH";
+        }
+
+        boolean autoGenerateTestSeries = effective.getAutoGenerateTestSeries() == null
+                || Boolean.TRUE.equals(effective.getAutoGenerateTestSeries());
+        boolean stopOnFirstFailure = Boolean.TRUE.equals(effective.getStopOnFirstFailure());
+
+        Optional<Exam> matchedExam = resolveQuestionExam(syllabus);
+
+        AdminSyllabusBatchGenerationResponseDto out = new AdminSyllabusBatchGenerationResponseDto();
+        out.setExamCode(trimOrNull(syllabus.getExamCode()));
+        out.setExamName(trimOrNull(syllabus.getExamName()));
+        out.setMatchedQuestionExamId(matchedExam.map(Exam::getId).orElse(null));
+        out.setMatchedQuestionExamName(matchedExam.map(Exam::getName).orElse(null));
+        out.setRequestedQuestionsPerTopic(mix.total);
+        out.setAutoGenerateTestSeriesRequested(autoGenerateTestSeries);
+
+        int requestedTopicsCount = 0;
+        for (SubjectTopicNode node : subjectTopicIndex.values()) {
+            if (!requestedSubjectKeys.isEmpty()
+                    && !requestedSubjectKeys.contains(normalizeLookupKey(node.subjectName))) {
+                continue;
+            }
+            requestedTopicsCount += node.topics.size();
+        }
+        if (requestedTopicsCount == 0) {
+            throw new IllegalArgumentException("No matching syllabus subjects/topics found for batch generation");
+        }
+
+        int processedTopicsCount = 0;
+        int successfulTopicsCount = 0;
+        int failedTopicsCount = 0;
+        int totalQuestionsGenerated = 0;
+        int totalQuestionsRequested = 0;
+        int totalQuestionsPersistedCreated = 0;
+        int totalQuestionsPersistedUpdated = 0;
+        int totalSkippedRunDuplicates = 0;
+        int topicsSkippedAsAlreadySufficient = 0;
+        List<String> failedTopicErrors = new ArrayList<>();
+        String testSeriesFailure = null;
+
+        LinkedHashSet<String> runNormalized = new LinkedHashSet<>();
+        List<AdminSyllabusBatchGenerationResponseDto.TopicGenerationResultDto> topicResults = new ArrayList<>();
+        List<Map<String, Object>> artifactTopicPayloads = new ArrayList<>();
+
+        boolean stopRequested = false;
+        outer:
+        for (SubjectTopicNode node : subjectTopicIndex.values()) {
+            if (!requestedSubjectKeys.isEmpty()
+                    && !requestedSubjectKeys.contains(normalizeLookupKey(node.subjectName))) {
+                continue;
+            }
+
+            for (String topic : node.topics) {
+                processedTopicsCount++;
+
+                AdminSyllabusBatchGenerationResponseDto.TopicGenerationResultDto topicResult =
+                        new AdminSyllabusBatchGenerationResponseDto.TopicGenerationResultDto();
+                topicResult.setSubject(node.subjectName);
+                topicResult.setTopic(topic);
+                long existingCount = countExistingQuestionsForTopic(
+                        node.subjectName,
+                        topic,
+                        matchedExam.map(Exam::getId).orElse(null)
+                );
+                int remainingNeeded = Math.max(0, mix.total - (int) Math.min(Integer.MAX_VALUE, existingCount));
+                topicResult.setRequestedTotal(remainingNeeded);
+                totalQuestionsRequested += remainingNeeded;
+
+                if (remainingNeeded <= 0) {
+                    topicsSkippedAsAlreadySufficient++;
+                    topicResult.setGeneratedCount(0);
+                    topicResult.setPersistedCreated(0);
+                    topicResult.setPersistedUpdated(0);
+                    topicResult.setPersistedTotal(0);
+                    topicResult.setSkippedExistingDuplicates(0);
+                    topicResult.setSkippedGeneratedDuplicates(0);
+                    topicResult.setSkippedRunDuplicates(0);
+                    topicResult.setComplete(true);
+                    topicResult.setSuccess(true);
+                    topicResult.setMessage("Skipped: topic already has >= " + mix.total + " questions in question bank.");
+                    topicResults.add(topicResult);
+                    artifactTopicPayloads.add(buildTopicArtifactPayload(node.subjectName, topic, topicResult, List.of(), List.of()));
+                    successfulTopicsCount++;
+                    continue;
+                }
+
+                try {
+                    int targetForTopic = remainingNeeded;
+                    int needed = remainingNeeded;
+                    int roundsUsed = 0;
+                    int skippedExistingDuplicates = 0;
+                    int skippedGeneratedDuplicates = 0;
+                    int skippedRunDuplicates = 0;
+                    int validationRejected = 0;
+                    LinkedHashSet<String> topicNormalized = new LinkedHashSet<>();
+                    List<QuestionDto> acceptedForPersistence = new ArrayList<>();
+                    List<String> qualityHints = new ArrayList<>();
+
+                    while (needed > 0 && roundsUsed < MAX_AUTO_REFINE_ROUNDS) {
+                        roundsUsed++;
+                        DifficultyMix remainingMix = scaleDifficultyMix(mix, needed);
+                        AdminQuestionGenerationRequestDto topicRequest = new AdminQuestionGenerationRequestDto();
+                        topicRequest.setSubject(node.subjectName);
+                        topicRequest.setTopic(topic);
+                        topicRequest.setSubTopic(topic);
+                        topicRequest.setTotalQuestions(remainingMix.total);
+                        topicRequest.setEasyCount(remainingMix.easy);
+                        topicRequest.setMediumCount(remainingMix.medium);
+                        topicRequest.setHardCount(remainingMix.hard);
+                        topicRequest.setLanguage(language.name());
+                        topicRequest.setMarks(marks);
+                        topicRequest.setNegativeMarks(negativeMarks);
+                        topicRequest.setIsPremium(isPremium);
+                        topicRequest.setCreatedBy(createdBy);
+                        if (!qualityHints.isEmpty()) {
+                            topicRequest.setQualityHint(String.join(" | ", qualityHints));
+                        }
+
+                        AdminQuestionGenerationPreviewDto preview = generatePreviewByExamKey(examKey, topicRequest)
+                                .orElseThrow(() -> new IllegalArgumentException("Syllabus not found for exam key"));
+                        skippedExistingDuplicates += defaultInt(preview.getSkippedExistingDuplicates());
+                        skippedGeneratedDuplicates += defaultInt(preview.getSkippedGeneratedDuplicates());
+
+                        ValidationResult validation = validateGeneratedQuestions(preview.getQuestions(), topicNormalized);
+                        validationRejected += validation.rejectedCount;
+
+                        int roundRunDuplicates = 0;
+                        for (QuestionDto generated : validation.validQuestions) {
+                            String normalized = normalizeQuestion(generated.getQuestionText());
+                            if (normalized.isBlank()) {
+                                continue;
+                            }
+                            if (!runNormalized.add(normalized)) {
+                                roundRunDuplicates++;
+                                continue;
+                            }
+                            acceptedForPersistence.add(generated);
+                            topicNormalized.add(normalized);
+                        }
+                        skippedRunDuplicates += roundRunDuplicates;
+
+                        needed = Math.max(0, targetForTopic - acceptedForPersistence.size());
+                        String nextHint = buildRefinementHint(validation.issueCounts, needed);
+                        if (nextHint != null) {
+                            qualityHints.add(nextHint);
+                        }
+                        if (needed <= 0) {
+                            break;
+                        }
+                    }
+
+                    QuestionBulkUpsertResult upsertResult = null;
+                    if (!acceptedForPersistence.isEmpty()) {
+                        upsertResult = questionService.bulkUpsert(acceptedForPersistence);
+                    }
+
+                    int created = upsertResult == null ? 0 : upsertResult.getCreated();
+                    int updated = upsertResult == null ? 0 : upsertResult.getUpdated();
+
+                    totalQuestionsGenerated += acceptedForPersistence.size();
+                    totalQuestionsPersistedCreated += created;
+                    totalQuestionsPersistedUpdated += updated;
+                    totalSkippedRunDuplicates += skippedRunDuplicates;
+
+                    topicResult.setGeneratedCount(acceptedForPersistence.size());
+                    topicResult.setPersistedCreated(created);
+                    topicResult.setPersistedUpdated(updated);
+                    topicResult.setPersistedTotal(created + updated);
+                    topicResult.setSkippedExistingDuplicates(skippedExistingDuplicates);
+                    topicResult.setSkippedGeneratedDuplicates(skippedGeneratedDuplicates + validationRejected);
+                    topicResult.setSkippedRunDuplicates(skippedRunDuplicates);
+                    topicResult.setComplete(acceptedForPersistence.size() >= targetForTopic);
+                    topicResult.setSuccess(topicResult.isComplete());
+                    if (topicResult.isComplete()) {
+                        topicResult.setMessage("Auto generation completed in " + roundsUsed
+                                + " round(s) with validation and refine checks.");
+                        successfulTopicsCount++;
+                    } else {
+                        topicResult.setMessage("Auto generation partial: generated " + acceptedForPersistence.size()
+                                + "/" + targetForTopic + " after " + roundsUsed + " round(s).");
+                        topicResult.setError("Unable to reach target after automated refine rounds");
+                        failedTopicsCount++;
+                        failedTopicErrors.add(node.subjectName + " :: " + topic
+                                + " -> Unable to reach target after refine rounds");
+                        if (stopOnFirstFailure) {
+                            stopRequested = true;
+                        }
+                    }
+                    artifactTopicPayloads.add(buildTopicArtifactPayload(
+                            node.subjectName,
+                            topic,
+                            topicResult,
+                            acceptedForPersistence,
+                            qualityHints
+                    ));
+                } catch (Exception ex) {
+                    failedTopicsCount++;
+                    topicResult.setGeneratedCount(0);
+                    topicResult.setPersistedCreated(0);
+                    topicResult.setPersistedUpdated(0);
+                    topicResult.setPersistedTotal(0);
+                    topicResult.setSkippedExistingDuplicates(0);
+                    topicResult.setSkippedGeneratedDuplicates(0);
+                    topicResult.setSkippedRunDuplicates(0);
+                    topicResult.setComplete(false);
+                    topicResult.setSuccess(false);
+                    topicResult.setMessage("Generation failed for this topic.");
+                    topicResult.setError(ex.getMessage());
+                    failedTopicErrors.add(node.subjectName + " :: " + topic + " -> " + safeErrorMessage(ex));
+                    artifactTopicPayloads.add(buildTopicArtifactPayload(
+                            node.subjectName,
+                            topic,
+                            topicResult,
+                            List.of(),
+                            List.of(safeErrorMessage(ex))
+                    ));
+                    log.warn("Batch generation failed for subject='{}', topic='{}': {}",
+                            node.subjectName, topic, ex.getMessage());
+                    if (stopOnFirstFailure) {
+                        stopRequested = true;
+                    }
+                }
+
+                topicResults.add(topicResult);
+                if (stopRequested) {
+                    break outer;
+                }
+            }
+        }
+
+        out.setRequestedTopicsCount(requestedTopicsCount);
+        out.setProcessedTopicsCount(processedTopicsCount);
+        out.setSuccessfulTopicsCount(successfulTopicsCount);
+        out.setFailedTopicsCount(failedTopicsCount);
+        out.setTotalQuestionsRequested(totalQuestionsRequested);
+        out.setTotalQuestionsGenerated(totalQuestionsGenerated);
+        out.setTotalQuestionsPersistedCreated(totalQuestionsPersistedCreated);
+        out.setTotalQuestionsPersistedUpdated(totalQuestionsPersistedUpdated);
+        out.setTotalQuestionsPersisted(totalQuestionsPersistedCreated + totalQuestionsPersistedUpdated);
+        out.setTotalSkippedRunDuplicates(totalSkippedRunDuplicates);
+        out.setTopicResults(topicResults);
+
+        try {
+            Map<String, Object> artifact = new LinkedHashMap<>();
+            artifact.put("examKey", safeExamKey(examKey));
+            artifact.put("examCode", out.getExamCode());
+            artifact.put("examName", out.getExamName());
+            artifact.put("requestedTopicsCount", out.getRequestedTopicsCount());
+            artifact.put("processedTopicsCount", out.getProcessedTopicsCount());
+            artifact.put("successfulTopicsCount", out.getSuccessfulTopicsCount());
+            artifact.put("failedTopicsCount", out.getFailedTopicsCount());
+            artifact.put("requestedQuestionsPerTopic", out.getRequestedQuestionsPerTopic());
+            artifact.put("totalQuestionsRequested", out.getTotalQuestionsRequested());
+            artifact.put("totalQuestionsGenerated", out.getTotalQuestionsGenerated());
+            artifact.put("totalQuestionsPersistedCreated", out.getTotalQuestionsPersistedCreated());
+            artifact.put("totalQuestionsPersistedUpdated", out.getTotalQuestionsPersistedUpdated());
+            artifact.put("totalQuestionsPersisted", out.getTotalQuestionsPersisted());
+            artifact.put("totalSkippedRunDuplicates", out.getTotalSkippedRunDuplicates());
+            artifact.put("topicResults", out.getTopicResults());
+            artifact.put("topics", artifactTopicPayloads);
+            String artifactId = mcqGenerationArtifactService.saveArtifact(examKey, artifact);
+            out.setArtifactId(artifactId);
+            out.setArtifactDownloadUrl("/api/syllabus/admin/question-bank/artifacts/" + artifactId);
+        } catch (Exception artifactEx) {
+            log.warn("Failed to persist MCQ generation artifact for examKey='{}': {}", examKey, artifactEx.getMessage());
+        }
+
+        if (autoGenerateTestSeries) {
+            try {
+                Optional<ExamTestSeriesGenerateResponseDto> testSeriesOpt =
+                        examTestSeriesService.generateAllPossibleByExamKey(examKey);
+                if (testSeriesOpt.isPresent()) {
+                    out.setTestSeriesGenerated(true);
+                    out.setTestSeriesGeneration(testSeriesOpt.get());
+                    out.setTestSeriesMessage(testSeriesOpt.get().getMessage());
+                } else {
+                    out.setTestSeriesGenerated(false);
+                    out.setTestSeriesMessage("Test series generation skipped: syllabus not found for exam key.");
+                }
+            } catch (Exception ex) {
+                out.setTestSeriesGenerated(false);
+                out.setTestSeriesMessage("Test series generation failed: " + ex.getMessage());
+                testSeriesFailure = safeErrorMessage(ex);
+                log.warn("Auto test-series generation failed for examKey='{}': {}", examKey, ex.getMessage());
+            }
+        }
+
+        if (failedTopicsCount == 0 && !stopRequested) {
+            out.setMessage("Batch generation completed for all requested topics. Skipped topics already at target: "
+                    + topicsSkippedAsAlreadySufficient + ".");
+        } else if (stopRequested) {
+            out.setMessage("Batch generation stopped due to failure because stopOnFirstFailure=true. Skipped topics already at target: "
+                    + topicsSkippedAsAlreadySufficient + ".");
+        } else {
+            out.setMessage("Batch generation completed with partial failures. Skipped topics already at target: "
+                    + topicsSkippedAsAlreadySufficient + ".");
+        }
+
+        if (failedTopicsCount > 0 || stopRequested || testSeriesFailure != null) {
+            adminAlertService.sendFailureAlert(
+                    "MCQ Batch Generation Alert [" + safeExamKey(examKey) + "]",
+                    buildBatchFailureAlertBody(examKey, out, failedTopicErrors, stopRequested, testSeriesFailure)
+            );
+        }
+        return Optional.of(out);
+        } catch (RuntimeException ex) {
+            adminAlertService.sendFailureAlert(
+                    "MCQ Batch Fatal Failure [" + safeExamKey(examKey) + "]",
+                    "Exam Key: " + safeExamKey(examKey) + "\n"
+                            + "Failure: " + safeErrorMessage(ex)
+            );
+            throw ex;
+        }
+    }
+
     private int generateForDifficulty(List<QuestionDto> output,
                                       Set<String> generatedNormalized,
                                       Set<String> existingNormalized,
@@ -252,6 +638,7 @@ public class AdminSyllabusQuestionService {
                                       String topic,
                                       String subTopic,
                                       String examTag,
+                                      String examBindingName,
                                       String promptDifficulty,
                                       String difficultyValue,
                                       int targetCount,
@@ -260,6 +647,7 @@ public class AdminSyllabusQuestionService {
                                       Double negativeMarks,
                                       Boolean isPremium,
                                       String createdBy,
+                                      String qualityHint,
                                       int sequenceStart) {
         if (targetCount <= 0) {
             return sequenceStart;
@@ -272,6 +660,7 @@ public class AdminSyllabusQuestionService {
             int remaining = targetCount - collected;
             int requestCount = Math.min(remaining, MAX_QUESTIONS_PER_AI_CALL);
             List<String> avoidList = buildAvoidPromptQuestions(existingPromptQuestions, generatedPromptQuestions);
+            boolean allowPremiumFallback = attempts >= MINI_ONLY_ATTEMPTS_PER_DIFFICULTY;
             String aiJson;
             try {
                 aiJson = openAIService.generateExamSubjectTopicQuestions(
@@ -281,7 +670,9 @@ public class AdminSyllabusQuestionService {
                         requestCount,
                         promptDifficulty,
                         language.name(),
-                        avoidList
+                        avoidList,
+                        allowPremiumFallback,
+                        qualityHint
                 );
             } catch (Exception ex) {
                 stats.openAiFailures++;
@@ -327,6 +718,7 @@ public class AdminSyllabusQuestionService {
                         sequence,
                         examName,
                         examTag,
+                        examBindingName,
                         subject,
                         topic,
                         subTopic,
@@ -381,6 +773,10 @@ public class AdminSyllabusQuestionService {
                 if (question == null) {
                     continue;
                 }
+                question = question.trim();
+                if (question.length() < MIN_QUESTION_LENGTH) {
+                    continue;
+                }
                 String questionImageSvg = trimOrNull(firstNonBlank(
                         node.path("question_image_svg").asText(null),
                         node.path("questionImageSvg").asText(null),
@@ -388,15 +784,12 @@ public class AdminSyllabusQuestionService {
                         node.path("question_svg").asText(null),
                         node.path("questionSvg").asText(null)
                 ));
-                if (!isValidSvg(questionImageSvg)) {
-                    continue;
-                }
 
                 List<AiOptionItem> options = extractOptions(node);
                 if (options.size() != 4) {
                     continue;
                 }
-                if (!hasAllValidOptionSvgs(options)) {
+                if (!hasValidOptionTexts(options)) {
                     continue;
                 }
 
@@ -420,7 +813,7 @@ public class AdminSyllabusQuestionService {
                 );
 
                 AiQuestionItem item = new AiQuestionItem();
-                item.question = question.trim();
+                item.question = question;
                 item.options = options;
                 item.correctOption = correctOption;
                 item.explanation = explanation == null ? "" : explanation.trim();
@@ -428,6 +821,9 @@ public class AdminSyllabusQuestionService {
                     continue;
                 }
                 item.questionImageSvg = questionImageSvg;
+                if (!isHindiLikely(item)) {
+                    continue;
+                }
                 out.add(item);
             }
             return out;
@@ -735,25 +1131,44 @@ public class AdminSyllabusQuestionService {
         return raw;
     }
 
-    private boolean hasAllValidOptionSvgs(List<AiOptionItem> options) {
+    private boolean hasValidOptionTexts(List<AiOptionItem> options) {
         if (options == null || options.isEmpty()) {
             return false;
         }
         for (AiOptionItem option : options) {
-            if (option == null || !isValidSvg(option.imageSvg)) {
+            if (option == null) {
+                return false;
+            }
+            String text = trimOrNull(option.text);
+            if (text == null || text.length() < 1) {
                 return false;
             }
         }
         return true;
     }
 
-    private boolean isValidSvg(String svg) {
-        String normalized = trimOrNull(svg);
-        if (normalized == null) {
+    private boolean isHindiLikely(AiQuestionItem item) {
+        if (item == null) {
             return false;
         }
-        String lowered = normalized.toLowerCase(Locale.ROOT);
-        return lowered.contains("<svg") && lowered.contains("</svg>");
+        if (!containsDevanagari(item.question) || !containsDevanagari(item.explanation)) {
+            return false;
+        }
+        // Options can legitimately be numeric dates/years or proper nouns; do not over-filter here.
+        return true;
+    }
+
+    private boolean containsDevanagari(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch >= '\u0900' && ch <= '\u097F') {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean hasDetailedExplanation(String explanation) {
@@ -765,6 +1180,7 @@ public class AdminSyllabusQuestionService {
                                       int sequence,
                                       String examName,
                                       String examTag,
+                                      String examBindingName,
                                       String subject,
                                       String topic,
                                       String subTopic,
@@ -776,10 +1192,9 @@ public class AdminSyllabusQuestionService {
                                       String createdBy) {
         QuestionDto dto = new QuestionDto();
         dto.setQuestionCode(generateUniqueQuestionCode(subject, topic, sequence));
-        if (examTag != null && !examTag.isBlank()) {
-            dto.setExams(List.of(examTag));
-        } else if (examName != null && !examName.isBlank()) {
-            dto.setExams(List.of(examName));
+        String examAssociation = firstNonBlank(examBindingName, examTag, examName);
+        if (examAssociation != null && !examAssociation.isBlank()) {
+            dto.setExams(List.of(examAssociation));
         }
         dto.setSubject(subject);
         dto.setTopic(topic);
@@ -839,6 +1254,8 @@ public class AdminSyllabusQuestionService {
         List<String> tags = new ArrayList<>();
         if (examTag != null && !examTag.isBlank()) {
             tags.add(examTag);
+        } else if (examAssociation != null && !examAssociation.isBlank()) {
+            tags.add(examAssociation);
         }
         tags.add(subject);
         tags.add(topic);
@@ -1143,6 +1560,237 @@ public class AdminSyllabusQuestionService {
                 .trim();
     }
 
+    private long countExistingQuestionsForTopic(String subject, String topic, Long examId) {
+        if (examId != null) {
+            return questionRepository.countBySubjectAndTopicAndExamId(subject, topic, examId);
+        }
+        return questionRepository.countBySubjectAndTopic(subject, topic);
+    }
+
+    private ValidationResult validateGeneratedQuestions(List<QuestionDto> generated, Set<String> topicNormalized) {
+        ValidationResult out = new ValidationResult();
+        if (generated == null || generated.isEmpty()) {
+            out.issueCounts.merge("empty_batch", 1, Integer::sum);
+            return out;
+        }
+
+        for (QuestionDto dto : generated) {
+            if (dto == null) {
+                out.rejectedCount++;
+                out.issueCounts.merge("null_question", 1, Integer::sum);
+                continue;
+            }
+            String questionText = trimOrNull(dto.getQuestionText());
+            String normalized = normalizeQuestion(questionText);
+            if (normalized.isBlank() || questionText == null || questionText.length() < MIN_QUESTION_LENGTH) {
+                out.rejectedCount++;
+                out.issueCounts.merge("question_text_invalid", 1, Integer::sum);
+                continue;
+            }
+            if (topicNormalized != null && topicNormalized.contains(normalized)) {
+                out.rejectedCount++;
+                out.issueCounts.merge("duplicate_stem_generated", 1, Integer::sum);
+                continue;
+            }
+
+            String explanation = dto.getExplanation() == null ? null : trimOrNull(dto.getExplanation().getText());
+            if (!hasDetailedExplanation(explanation)) {
+                out.rejectedCount++;
+                out.issueCounts.merge("explanation_too_short", 1, Integer::sum);
+                continue;
+            }
+            if (!containsDevanagari(questionText) || !containsDevanagari(explanation)) {
+                out.rejectedCount++;
+                out.issueCounts.merge("non_hindi_content", 1, Integer::sum);
+                continue;
+            }
+
+            List<QuestionChoiceDto> choices = dto.getChoices();
+            if (choices == null || choices.size() != 4) {
+                out.rejectedCount++;
+                out.issueCounts.merge("choices_not_four", 1, Integer::sum);
+                continue;
+            }
+            LinkedHashSet<String> optionNormalized = new LinkedHashSet<>();
+            boolean optionInvalid = false;
+            for (QuestionChoiceDto choice : choices) {
+                String optionText = choice == null ? null : trimOrNull(choice.getText());
+                if (optionText == null) {
+                    optionInvalid = true;
+                    break;
+                }
+                optionNormalized.add(normalizeQuestion(optionText));
+            }
+            if (optionInvalid || optionNormalized.size() != 4) {
+                out.rejectedCount++;
+                out.issueCounts.merge("options_duplicate_or_invalid", 1, Integer::sum);
+                continue;
+            }
+
+            List<Long> choiceIds = dto.getCorrectAnswer() == null ? null : dto.getCorrectAnswer().getChoiceIds();
+            if (choiceIds == null || choiceIds.size() != 1) {
+                out.rejectedCount++;
+                out.issueCounts.merge("correct_answer_invalid", 1, Integer::sum);
+                continue;
+            }
+            Long correctId = choiceIds.get(0);
+            if (correctId == null || correctId < 1 || correctId > 4) {
+                out.rejectedCount++;
+                out.issueCounts.merge("correct_answer_out_of_range", 1, Integer::sum);
+                continue;
+            }
+
+            out.validQuestions.add(dto);
+        }
+        return out;
+    }
+
+    private String buildRefinementHint(Map<String, Integer> issueCounts, int stillNeeded) {
+        if ((issueCounts == null || issueCounts.isEmpty()) && stillNeeded <= 0) {
+            return null;
+        }
+        List<String> parts = new ArrayList<>();
+        if (stillNeeded > 0) {
+            parts.add("Need " + stillNeeded + " additional valid unique questions");
+        }
+        if (issueCounts != null && !issueCounts.isEmpty()) {
+            Integer nonHindi = issueCounts.get("non_hindi_content");
+            Integer shortExplanation = issueCounts.get("explanation_too_short");
+            Integer optionIssues = issueCounts.get("options_duplicate_or_invalid");
+            Integer answerIssues = issueCounts.get("correct_answer_invalid");
+            Integer duplicateStem = issueCounts.get("duplicate_stem_generated");
+            if (defaultInt(nonHindi) > 0) {
+                parts.add("Use Devanagari Hindi for question and explanation");
+            }
+            if (defaultInt(shortExplanation) > 0) {
+                parts.add("Explanation must be detailed (minimum around 28 chars)");
+            }
+            if (defaultInt(optionIssues) > 0) {
+                parts.add("Exactly 4 distinct options with non-empty text");
+            }
+            if (defaultInt(answerIssues) > 0) {
+                parts.add("One valid correct answer choice id in range 1-4");
+            }
+            if (defaultInt(duplicateStem) > 0) {
+                parts.add("Avoid repeated question stems");
+            }
+        }
+        if (parts.isEmpty()) {
+            return null;
+        }
+        String joined = String.join(". ", parts);
+        return joined.length() > 600 ? joined.substring(0, 600) : joined;
+    }
+
+    private Map<String, Object> buildTopicArtifactPayload(String subject,
+                                                          String topic,
+                                                          AdminSyllabusBatchGenerationResponseDto.TopicGenerationResultDto result,
+                                                          List<QuestionDto> acceptedQuestions,
+                                                          List<String> qualityHints) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("subject", subject);
+        out.put("topic", topic);
+        out.put("result", result);
+        out.put("qualityHints", qualityHints == null ? List.of() : qualityHints);
+        out.put("questions", acceptedQuestions == null ? List.of() : acceptedQuestions);
+        return out;
+    }
+
+    private DifficultyMix scaleDifficultyMix(DifficultyMix baseMix, int newTotal) {
+        if (newTotal <= 0) {
+            return new DifficultyMix(0, 0, 0, 0);
+        }
+
+        if (baseMix == null || baseMix.total <= 0
+                || (baseMix.easy == 0 && baseMix.medium == 0 && baseMix.hard == 0)) {
+            int easy = (int) Math.floor(newTotal * 0.20);
+            int medium = (int) Math.floor(newTotal * 0.40);
+            int hard = newTotal - easy - medium;
+            return new DifficultyMix(newTotal, easy, medium, hard);
+        }
+
+        double easyRatio = baseMix.easy / (double) baseMix.total;
+        double mediumRatio = baseMix.medium / (double) baseMix.total;
+        int easy = (int) Math.floor(newTotal * easyRatio);
+        int medium = (int) Math.floor(newTotal * mediumRatio);
+        int hard = newTotal - easy - medium;
+        if (hard < 0) {
+            hard = 0;
+            medium = Math.max(0, newTotal - easy);
+        }
+        return new DifficultyMix(newTotal, easy, medium, hard);
+    }
+
+    private String buildBatchFailureAlertBody(String examKey,
+                                              AdminSyllabusBatchGenerationResponseDto response,
+                                              List<String> failedTopicErrors,
+                                              boolean stopRequested,
+                                              String testSeriesFailure) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Exam Key: ").append(safeExamKey(examKey)).append('\n');
+        sb.append("Exam Code: ").append(defaultString(response == null ? null : response.getExamCode(), "N/A")).append('\n');
+        sb.append("Exam Name: ").append(defaultString(response == null ? null : response.getExamName(), "N/A")).append('\n');
+        if (response != null) {
+            sb.append("Requested Topics: ").append(defaultInt(response.getRequestedTopicsCount())).append('\n');
+            sb.append("Processed Topics: ").append(defaultInt(response.getProcessedTopicsCount())).append('\n');
+            sb.append("Successful Topics: ").append(defaultInt(response.getSuccessfulTopicsCount())).append('\n');
+            sb.append("Failed Topics: ").append(defaultInt(response.getFailedTopicsCount())).append('\n');
+            sb.append("Questions Persisted: ").append(defaultInt(response.getTotalQuestionsPersisted())).append('\n');
+            sb.append("Run Message: ").append(defaultString(response.getMessage(), "N/A")).append('\n');
+        }
+        sb.append("Stopped Early: ").append(stopRequested).append('\n');
+        if (testSeriesFailure != null) {
+            sb.append("Test-Series Failure: ").append(testSeriesFailure).append('\n');
+        }
+
+        if (failedTopicErrors != null && !failedTopicErrors.isEmpty()) {
+            sb.append("\nTopic Failure Details:\n");
+            int limit = Math.min(25, failedTopicErrors.size());
+            for (int i = 0; i < limit; i++) {
+                sb.append(i + 1).append(". ").append(failedTopicErrors.get(i)).append('\n');
+            }
+            if (failedTopicErrors.size() > limit) {
+                sb.append("... and ").append(failedTopicErrors.size() - limit).append(" more failures.");
+            }
+        }
+        return sb.toString();
+    }
+
+    private String safeErrorMessage(Exception ex) {
+        if (ex == null) {
+            return "Unknown error";
+        }
+        String message = trimOrNull(ex.getMessage());
+        if (message == null) {
+            message = ex.getClass().getSimpleName();
+        }
+        return message.length() > 500 ? message.substring(0, 500) + "...[truncated]" : message;
+    }
+
+    private String safeErrorMessage(RuntimeException ex) {
+        if (ex == null) {
+            return "Unknown runtime error";
+        }
+        String message = trimOrNull(ex.getMessage());
+        if (message == null) {
+            message = ex.getClass().getSimpleName();
+        }
+        return message.length() > 500 ? message.substring(0, 500) + "...[truncated]" : message;
+    }
+
+    private String safeExamKey(String examKey) {
+        String safe = trimOrNull(examKey);
+        return safe == null ? "N/A" : safe;
+    }
+
+    private int defaultInt(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private String defaultString(String value, String fallback) {
+        return value == null ? fallback : value;
+    }
+
     private String firstNonBlank(String... values) {
         if (values == null) {
             return null;
@@ -1260,5 +1908,11 @@ public class AdminSyllabusQuestionService {
         private int skippedExistingDuplicates = 0;
         private int skippedGeneratedDuplicates = 0;
         private int openAiFailures = 0;
+    }
+
+    private static class ValidationResult {
+        private final List<QuestionDto> validQuestions = new ArrayList<>();
+        private final Map<String, Integer> issueCounts = new LinkedHashMap<>();
+        private int rejectedCount = 0;
     }
 }

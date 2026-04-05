@@ -1,11 +1,11 @@
 package aamscool.backend.aamschoolbackend.dto;
 
-public class AdminQuestionGenerationRequestDto {
+import java.util.ArrayList;
+import java.util.List;
 
-    private String subject;
-    private String topic;
-    private String subTopic;
-    private Integer totalQuestions;
+public class AdminSyllabusBatchGenerationRequestDto {
+
+    private Integer totalQuestionsPerTopic;
     private Integer easyCount;
     private Integer mediumCount;
     private Integer hardCount;
@@ -14,38 +14,16 @@ public class AdminQuestionGenerationRequestDto {
     private Double negativeMarks;
     private Boolean isPremium;
     private String createdBy;
-    private String qualityHint;
+    private Boolean autoGenerateTestSeries;
+    private Boolean stopOnFirstFailure;
+    private List<String> subjects = new ArrayList<>();
 
-    public String getSubject() {
-        return subject;
+    public Integer getTotalQuestionsPerTopic() {
+        return totalQuestionsPerTopic;
     }
 
-    public void setSubject(String subject) {
-        this.subject = subject;
-    }
-
-    public String getTopic() {
-        return topic;
-    }
-
-    public void setTopic(String topic) {
-        this.topic = topic;
-    }
-
-    public String getSubTopic() {
-        return subTopic;
-    }
-
-    public void setSubTopic(String subTopic) {
-        this.subTopic = subTopic;
-    }
-
-    public Integer getTotalQuestions() {
-        return totalQuestions;
-    }
-
-    public void setTotalQuestions(Integer totalQuestions) {
-        this.totalQuestions = totalQuestions;
+    public void setTotalQuestionsPerTopic(Integer totalQuestionsPerTopic) {
+        this.totalQuestionsPerTopic = totalQuestionsPerTopic;
     }
 
     public Integer getEasyCount() {
@@ -112,11 +90,27 @@ public class AdminQuestionGenerationRequestDto {
         this.createdBy = createdBy;
     }
 
-    public String getQualityHint() {
-        return qualityHint;
+    public Boolean getAutoGenerateTestSeries() {
+        return autoGenerateTestSeries;
     }
 
-    public void setQualityHint(String qualityHint) {
-        this.qualityHint = qualityHint;
+    public void setAutoGenerateTestSeries(Boolean autoGenerateTestSeries) {
+        this.autoGenerateTestSeries = autoGenerateTestSeries;
+    }
+
+    public Boolean getStopOnFirstFailure() {
+        return stopOnFirstFailure;
+    }
+
+    public void setStopOnFirstFailure(Boolean stopOnFirstFailure) {
+        this.stopOnFirstFailure = stopOnFirstFailure;
+    }
+
+    public List<String> getSubjects() {
+        return subjects;
+    }
+
+    public void setSubjects(List<String> subjects) {
+        this.subjects = subjects == null ? new ArrayList<>() : subjects;
     }
 }

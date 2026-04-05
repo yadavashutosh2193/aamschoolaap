@@ -36,11 +36,20 @@ public class OpenAIService {
     @Value("${openai.max-retries:3}")
     private int maxRetries;
 
-    @Value("${openai.mcq.models:gpt-4.1,gpt-4o}")
+    @Value("${openai.mcq.models:gpt-4.1-mini,gpt-4o-mini}")
     private String mcqConfiguredModels;
+
+    @Value("${openai.mcq.premium-models:gpt-4.1,gpt-4o}")
+    private String mcqPremiumConfiguredModels;
+
+    @Value("${openai.mcq.enable-premium-fallback:true}")
+    private boolean mcqEnablePremiumFallback;
 
     @Value("${openai.mcq.max-retries:2}")
     private int mcqMaxRetries;
+
+    @Value("${openai.mcq.max-tokens:3200}")
+    private int mcqMaxTokens;
 
     private static final String OPENAI_URL = "https://api.openai.com/v1/chat/completions";
     private static final int MAX_TOKENS = 6000;
@@ -139,27 +148,50 @@ Now:
 
 1. Extract information from input.
 2. Validate JSON syntax before returning.
-3. please try to add more information that you feel is needed and not available in the input json
-4. please must add all the links in response json from raw json inside important links key (do not remove any links)
-5. please always try to add description and vacancy details.
-6. please do not put exampattern under vacancy detail it should contain total vacancy and post wise vacancy and category wise vacancy.
-7.please create section for exam process and pattern
-8. please do not use any parent key for the json (means json should start with {)
-9. use key title for title(always modify from input), advertisement_no for advertisement and also add key post_name, eligibility(includes age limit and educational eligibiity) rest all keys word should we spaces seperated
+3. Improve wording for SEO readability, but keep content factual and concise.
+4. Keep AdSense-friendly tone: no exaggerated claims, no fake urgency, no misleading statements.
+5. Must include all useful source links from input under important links/offical links keys; do not drop valid links.
+6. Always include a useful short description and vacancy details if available.
+7. Do not put exam pattern inside vacancy details; vacancy_details should focus on total/post/category vacancy.
+8. Create clear exam process and exam pattern sections when data exists.
+9. Do not use any parent key (JSON must start with {).
+10. Use key title, advertisement_no, post_name, eligibility (including age + qualification), and keep naming stable.
+11. Title should be search-friendly and factual (prefer 55-100 chars, avoid all-caps and clickbait words like "urgent", "hurry", "must apply now").
+12. short_description should be 120-220 chars, factual, and not repetitive.
+13. Never invent numbers, dates, or links. If unknown, keep null/empty.
 Return final valid JSON only.
  """;
     }
 
     private String buildMasterRefinePrompt(String rawJson) {
         return """
-can you please analyse below json for SEO and adsence .
+You are a JSON refiner for Indian government job pages.
+Refine the input JSON for SEO readability and AdSense-safe content quality while preserving factual integrity.
 
 Input JSON:
 """ + rawJson + """
 
 Rules:
 1) Return valid JSON only.
- 
+2) Keep exactly the same top-level schema and keys from input.
+3) Improve wording quality for:
+   - title
+   - short_description
+   - important_notes
+   - application_process
+4) SEO rules:
+   - title should be clear, factual, and search-friendly
+   - avoid keyword stuffing and repeated words
+   - avoid all-caps title
+   - keep title preferably 55-100 characters
+   - short_description should be 120-220 characters
+5) AdSense-safe rules:
+   - no sensational/clickbait phrases ("urgent", "hurry", "guaranteed selection", "100% sure", etc.)
+   - no misleading claims or unverifiable promises
+   - no abusive/adult/gambling language
+6) Do not fabricate dates, fees, vacancies, eligibility, or links.
+7) Preserve all official links from input unless clearly malformed duplicates.
+8) Keep output concise and user-trust focused.
 """;
     }
 
@@ -239,7 +271,7 @@ Important:
         IOException last = null;
         for (String model : models) {
             try {
-                return executePromptRawWithRetries(prompt, model, maxRetries, null);
+                return executePromptRawWithRetries(prompt, model, maxRetries, null, MAX_TOKENS);
             } catch (IOException ex) {
                 last = ex;
                 log.warn("OpenAI call failed for model {}: {}", model, ex.getMessage());
@@ -251,20 +283,38 @@ Important:
         throw new IOException("No OpenAI model configured");
     }
 
-    private String executePromptRawForMcq(String prompt) throws IOException {
-        List<String> models = resolveModels(mcqConfiguredModels, List.of("gpt-4.1", "gpt-4o"));
+    private String executePromptRawForMcq(String prompt, boolean allowPremiumFallback) throws IOException {
+        List<String> primaryModels = resolveModels(mcqConfiguredModels, List.of("gpt-4.1-mini", "gpt-4o-mini"));
         Map<String, Object> responseFormat = buildExamMcqResponseFormat();
-        IOException last = null;
-        for (String model : models) {
+        IOException lastPrimary = null;
+        for (String model : primaryModels) {
             try {
-                return executePromptRawWithRetries(prompt, model, mcqMaxRetries, responseFormat);
+                return executePromptRawWithRetries(prompt, model, mcqMaxRetries, responseFormat, mcqMaxTokens);
             } catch (IOException ex) {
-                last = ex;
+                lastPrimary = ex;
                 log.warn("OpenAI MCQ call failed for model {}: {}", model, ex.getMessage());
             }
         }
-        if (last != null) {
-            throw last;
+
+        if (allowPremiumFallback && mcqEnablePremiumFallback) {
+            List<String> premiumModels = resolveModels(mcqPremiumConfiguredModels, List.of("gpt-4.1", "gpt-4o"));
+            IOException lastPremium = null;
+            for (String model : premiumModels) {
+                try {
+                    log.info("Switching to premium MCQ model fallback: {}", model);
+                    return executePromptRawWithRetries(prompt, model, mcqMaxRetries, responseFormat, mcqMaxTokens);
+                } catch (IOException ex) {
+                    lastPremium = ex;
+                    log.warn("OpenAI premium MCQ call failed for model {}: {}", model, ex.getMessage());
+                }
+            }
+            if (lastPremium != null) {
+                throw lastPremium;
+            }
+        }
+
+        if (lastPrimary != null) {
+            throw lastPrimary;
         }
         throw new IOException("No OpenAI MCQ model configured");
     }
@@ -272,12 +322,13 @@ Important:
     private String executePromptRawWithRetries(String prompt,
                                                String model,
                                                int retryLimit,
-                                               Map<String, Object> responseFormat) throws IOException {
+                                               Map<String, Object> responseFormat,
+                                               int maxTokens) throws IOException {
         int attempts = Math.max(1, retryLimit);
         IOException last = null;
         for (int attempt = 1; attempt <= attempts; attempt++) {
             try {
-                return executePromptRawSingle(prompt, model, responseFormat);
+                return executePromptRawSingle(prompt, model, responseFormat, maxTokens);
             } catch (OpenAiRequestException ex) {
                 last = ex;
                 if (!ex.retryable || attempt >= attempts) {
@@ -297,8 +348,9 @@ Important:
 
     private String executePromptRawSingle(String prompt,
                                           String model,
-                                          Map<String, Object> responseFormat) throws IOException {
-        String requestBody = buildRequestBody(prompt, model, responseFormat);
+                                          Map<String, Object> responseFormat,
+                                          int maxTokens) throws IOException {
+        String requestBody = buildRequestBody(prompt, model, responseFormat, maxTokens);
         Request request = new Request.Builder()
                 .url(OPENAI_URL)
                 .post(RequestBody.create(requestBody, JSON))
@@ -328,15 +380,21 @@ Important:
         }
     }
 
-    private String buildRequestBody(String prompt, String model, Map<String, Object> responseFormat) throws IOException {
+    private String buildRequestBody(String prompt,
+                                    String model,
+                                    Map<String, Object> responseFormat,
+                                    int maxTokens) throws IOException {
+        String systemMessage = responseFormat == null
+                ? "You are a professional JSON formatter."
+                : "You are an expert Hindi exam question setter for Indian competitive exams. Return strict JSON only.";
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("model", model);
         payload.put("messages", List.of(
-                Map.of("role", "system", "content", "You are a professional job JSON formatter."),
+                Map.of("role", "system", "content", systemMessage),
                 Map.of("role", "user", "content", prompt == null ? "" : prompt)
         ));
         payload.put("temperature", responseFormat == null ? 0.05 : 0.0);
-        payload.put("max_tokens", MAX_TOKENS);
+        payload.put("max_tokens", Math.max(256, maxTokens));
         if (responseFormat != null && !responseFormat.isEmpty()) {
             payload.put("response_format", ensureTopLevelObjectSchema(responseFormat));
         }
@@ -441,7 +499,7 @@ Important:
         choiceSchema.put("properties", Map.of(
                 "id", Map.of("type", "integer", "minimum", 1, "maximum", 4),
                 "text", Map.of("type", "string", "minLength", 1),
-                "image", Map.of("type", "string", "minLength", 20)
+                "image", Map.of("type", "string")
         ));
 
         Map<String, Object> correctAnswerSchema = new LinkedHashMap<>();
@@ -463,14 +521,14 @@ Important:
         explanationSchema.put("additionalProperties", false);
         explanationSchema.put("required", List.of("text", "image", "videoUrl"));
         explanationSchema.put("properties", Map.of(
-                "text", Map.of("type", "string", "minLength", 40),
+                "text", Map.of("type", "string", "minLength", 28),
                 "image", Map.of("type", "string"),
                 "videoUrl", Map.of("type", "string")
         ));
 
         Map<String, Object> itemProperties = new LinkedHashMap<>();
         itemProperties.put("questionText", Map.of("type", "string", "minLength", 12));
-        itemProperties.put("questionImage", Map.of("type", "string", "minLength", 20));
+        itemProperties.put("questionImage", Map.of("type", "string"));
         itemProperties.put("choices", Map.of(
                 "type", "array",
                 "minItems", 4,
@@ -683,6 +741,49 @@ Important:
                                                     String difficultyLevel,
                                                     String language,
                                                     List<String> avoidQuestions) throws Exception {
+        return generateExamSubjectTopicQuestions(
+                examName,
+                subject,
+                topic,
+                count,
+                difficultyLevel,
+                language,
+                avoidQuestions,
+                false,
+                null
+        );
+    }
+
+    public String generateExamSubjectTopicQuestions(String examName,
+                                                    String subject,
+                                                    String topic,
+                                                    int count,
+                                                    String difficultyLevel,
+                                                    String language,
+                                                    List<String> avoidQuestions,
+                                                    boolean allowPremiumFallback) throws Exception {
+        return generateExamSubjectTopicQuestions(
+                examName,
+                subject,
+                topic,
+                count,
+                difficultyLevel,
+                language,
+                avoidQuestions,
+                allowPremiumFallback,
+                null
+        );
+    }
+
+    public String generateExamSubjectTopicQuestions(String examName,
+                                                    String subject,
+                                                    String topic,
+                                                    int count,
+                                                    String difficultyLevel,
+                                                    String language,
+                                                    List<String> avoidQuestions,
+                                                    boolean allowPremiumFallback,
+                                                    String qualityFeedback) throws Exception {
         String prompt = buildExamSubjectTopicQuestionsPrompt(
                 examName,
                 subject,
@@ -690,9 +791,10 @@ Important:
                 count,
                 difficultyLevel,
                 language,
-                avoidQuestions
+                avoidQuestions,
+                qualityFeedback
         );
-        String raw = executePromptRawForMcq(prompt);
+        String raw = executePromptRawForMcq(prompt, allowPremiumFallback);
         return extractCleanJson(raw);
     }
 
@@ -772,8 +874,10 @@ Rules:
                                                         int count,
                                                         String difficultyLevel,
                                                         String language,
-                                                        List<String> avoidQuestions) {
+                                                        List<String> avoidQuestions,
+                                                        String qualityFeedback) {
         String avoidBlock = buildAvoidQuestionsBlock(avoidQuestions);
+        String qualityFeedbackBlock = buildQualityFeedbackBlock(qualityFeedback);
         String safeExam = examName == null ? "" : examName.trim();
         String examDifficultyContext = safeExam.isBlank()
                 ? "Use a competitive government-exam standard."
@@ -798,12 +902,12 @@ Rules:
 2) Output must align with existing QuestionDto structure for persistence compatibility.
 3) Every item inside "questions" must contain exactly these keys:
    - questionText
-   - questionImage (valid inline SVG string, mandatory)
-   - choices (array of exactly 4 objects: {id, text, image}, where image is valid inline SVG)
+   - questionImage (optional, keep empty string if not needed)
+   - choices (array of exactly 4 objects: {id, text, image}; keep image empty string if not needed)
    - correctAnswer ({choiceIds:[1..4], textAnswer:""})
    - explanation ({text, image:"", videoUrl:""})
 4) Use Hindi language (Devanagari) for questionText, choices.text and explanation.text.
-5) explanation.text must be detailed (4-6 lines, exam-relevant reasoning).
+5) explanation.text must be concise but useful (2-3 lines) with exam-relevant reasoning and elimination logic.
 6) Every question must strictly belong to the provided subject and topic.
 7) Keep the requested difficulty level consistent for all questions in this call.
 8) Questions must be unique and non-repetitive.
@@ -815,7 +919,14 @@ Rules:
     - Easy: easy for %s aspirants, not beginner/school level
     - Medium: typical %s level
     - Hard: above typical %s level with deeper elimination and conceptual traps
-14) All SVG strings must be complete `<svg ...>...</svg>` markup and semantically relevant to the question/options.
+14) Use formal exam-style Hindi wording; avoid Hinglish and conversational tone.
+15) Prefer question archetypes seen in competitive exams:
+    fact-based, statement-based, assertion-reason, match-the-following, chronology, and applied conceptual MCQs.
+16) Distractors must be plausible and close to the right answer; avoid obviously wrong options.
+17) Keep output compact: avoid unnecessarily long explanations.
+18) If correction feedback is provided, strictly fix those issues in this response.
+19) If schema or language constraints cannot be satisfied for a question, skip that question instead of returning broken structure.
+%s
 %s
 """.formatted(
                 count,
@@ -829,8 +940,21 @@ Rules:
                 safeExam.isBlank() ? "the target exam" : safeExam,
                 safeExam.isBlank() ? "the target exam" : safeExam,
                 safeExam.isBlank() ? "the target exam" : safeExam,
+                qualityFeedbackBlock,
                 avoidBlock
         );
+    }
+
+    private String buildQualityFeedbackBlock(String qualityFeedback) {
+        String feedback = trimOrNull(qualityFeedback);
+        if (feedback == null) {
+            return "";
+        }
+        String cleaned = feedback.replaceAll("\\s+", " ").trim();
+        if (cleaned.length() > 1400) {
+            cleaned = cleaned.substring(0, 1400) + "...";
+        }
+        return "Correction feedback from previous attempt:\n- " + cleaned + "\n";
     }
 
     private String buildAvoidQuestionsBlock(List<String> avoidQuestions) {
